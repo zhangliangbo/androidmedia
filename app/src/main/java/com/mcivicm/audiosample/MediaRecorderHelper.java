@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.Environment;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 
 /**
@@ -34,7 +35,6 @@ public class MediaRecorderHelper {
     }
 
     /**
-     *
      * 准备录音
      *
      * @return
@@ -73,18 +73,18 @@ public class MediaRecorderHelper {
         }
     }
 
-    public static boolean pause(){
-        try{
+    public static boolean pause() {
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 getInstance().pause();
             }
             return true;
-        }catch (Exception e){
+        } catch (Exception e) {
             return false;
         }
     }
 
-   public static boolean stop() {
+    public static boolean stop() {
         try {
             getInstance().stop();
             return true;
@@ -124,5 +124,31 @@ public class MediaRecorderHelper {
 
     public static File getTempAudioFile() {
         return tempAudioFile;
+    }
+
+    /**
+     * 发送语音数据
+     *
+     * @param data
+     * @return
+     */
+    public static File saveAudioData(byte[] data) {
+        if (data == null || data.length == 0) {
+            return null;
+        }
+        File file = new File(Environment.getExternalStorageDirectory() + File.separator + "receive_audio.aac");
+        try {
+            if (!file.exists()) {//没有文件
+                if (!file.createNewFile()) {//创建文件
+                    return null;
+                }
+            }
+            FileOutputStream fos = new FileOutputStream(file);
+            fos.write(data, 0, data.length);
+            fos.close();
+            return file;
+        } catch (IOException e) {
+            return null;
+        }
     }
 }
