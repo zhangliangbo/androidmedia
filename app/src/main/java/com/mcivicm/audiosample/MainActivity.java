@@ -40,8 +40,8 @@ public class MainActivity extends AppCompatActivity {
 
     private Button recordAudio;
     private WebSocket ws = null;
-    AudioTrack audioTrack = AudioTrackHelper.newInstance(AudioFormat.ENCODING_PCM_16BIT);
-    Disposable disposable = null;
+    private AudioTrack audioTrack;
+    private Disposable disposable = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -150,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
+        audioTrack = AudioTrackHelper.newInstance(AudioFormat.ENCODING_PCM_16BIT);
         WebSocketHelper.newInstance(new WSListener((byte[]) null));
     }
 
@@ -159,6 +160,10 @@ public class MainActivity extends AppCompatActivity {
         if (ws != null) {
             ws.cancel();
             ws = null;
+        }
+        if (audioTrack != null) {
+            audioTrack.stop();
+            audioTrack.release();
         }
     }
 
