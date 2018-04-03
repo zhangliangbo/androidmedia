@@ -1,0 +1,29 @@
+package com.mcivicm.audiosample;
+
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
+
+import java.nio.ByteBuffer;
+
+/**
+ * 音轨助手
+ */
+
+public class AudioTrackHelper {
+    /**
+     * 新建一个播放器实例
+     *
+     * @return
+     */
+    public static AudioTrack newInstance(int audioFormat) {
+        return new AudioTrack(
+                AudioManager.STREAM_MUSIC,
+                AudioRecordHelper.sampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                audioFormat,
+                AudioRecordHelper.minBufferSize(audioFormat),
+                AudioTrack.MODE_STREAM
+        );
+    }
+}

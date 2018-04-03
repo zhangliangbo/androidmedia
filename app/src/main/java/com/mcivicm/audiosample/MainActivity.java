@@ -2,13 +2,14 @@ package com.mcivicm.audiosample;
 
 import android.Manifest;
 import android.content.Intent;
+import android.media.AudioFormat;
+import android.media.AudioTrack;
 import android.media.MediaPlayer;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
-import android.widget.Toast;
 
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
@@ -19,9 +20,14 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
+import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
+import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Action;
+import io.reactivex.functions.Function;
 import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
@@ -34,6 +40,8 @@ public class MainActivity extends AppCompatActivity {
 
     private Button recordAudio;
     private WebSocket ws = null;
+    AudioTrack audioTrack = AudioTrackHelper.newInstance(AudioFormat.ENCODING_PCM_16BIT);
+    Disposable disposable = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,21 +49,62 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         recordAudio = findViewById(R.id.record_audio);
         recordAudio.setOnTouchListener(new View.OnTouchListener() {
+
             @Override
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getAction()) {
                     case ACTION_DOWN:
-                        if (ws != null) {
-                            ws.send("speaklock");
-                        } else {
-                            WebSocketHelper.newInstance(new WSListener("speaklock"));
-                        }
+                        new RxPermissions(MainActivity.this)
+                                .request(Manifest.permission.RECORD_AUDIO)
+                                .flatMap(new Function<Boolean, ObservableSource<short[]>>() {
+                                    @Override
+                                    public ObservableSource<short[]> apply(Boolean aBoolean) throws Exception {
+                                        if (aBoolean) {
+                                            return AudioRecordHelper.pcm16BitAudioData();
+                                        } else {
+                                            throw new Exception("未授权，无法录音");
+                                        }
+                                    }
+                                })
+                                .observeOn(AndroidSchedulers.mainThread())
+                                .doOnDispose(new Action() {
+                                    @Override
+                                    public void run() throws Exception {
+                                        recordAudio.setText("长按开始录音");
+                                    }
+                                })
+                                .subscribe(new Observer<short[]>() {
+                                    @Override
+                                    public void onSubscribe(Disposable d) {
+                                        disposable = d;
+                                        recordAudio.setText("正在录音中...");
+                                    }
+
+                                    @Override
+                                    public void onNext(short[] shorts) {
+                                        byte[] data = new byte[shorts.length * 2];
+                                        ByteBuffer.wrap(data).asShortBuffer().put(shorts);//转化并填充数据
+                                        if (ws == null) {
+                                            WebSocketHelper.newInstance(new WSListener(data));
+                                        } else {
+                                            ws.send(ByteString.of(data, 0, data.length));
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onError(Throwable e) {
+
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+
+                                    }
+                                });
                         break;
                     case ACTION_UP:
-                        stopRecord();
-//                            playAudio(MediaRecorderHelper.getTempAudioFile());
-                        if (!sendAudio(MediaRecorderHelper.getTempAudioFile())) {
-                            ToastHelper.toast(MainActivity.this, "语音发送失败");
+                        if (disposable != null) {
+                            disposable.dispose();
                         }
                         break;
                 }
@@ -227,14 +276,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onMessage(WebSocket webSocket, ByteString bytes) {
             super.onMessage(webSocket, bytes);
-            File receive = MediaRecorderHelper.saveAudioData(bytes.toByteArray());//保存收到的语音数据
-            if (receive != null) {
-                try {
-                    playAudio(receive);//播放语音数据
-                } catch (IOException e) {
-                    ToastHelper.toast(MainActivity.this, e.getMessage());
-                }
-            }
+            playSteamContinuously(bytes.toByteArray(), AudioFormat.ENCODING_PCM_16BIT);
             ToastHelper.toast(MainActivity.this, "收到字节数据：" + bytes.toByteArray().length);
         }
 
@@ -257,6 +299,26 @@ public class MainActivity extends AppCompatActivity {
             ws = null;
             ToastHelper.toast(MainActivity.this, "发送数据失败:" + t.getMessage());
         }
+    }
+
+    //播放数据流
+    private void playSteamContinuously(byte[] data, int audioFormat) {
+        if (data == null || data.length == 0) {
+            return;
+        }
+        audioTrack.play();
+        switch (audioFormat) {
+            case AudioFormat.ENCODING_PCM_8BIT:
+                audioTrack.write(data, 0, data.length);
+                break;
+            case AudioFormat.ENCODING_PCM_16BIT:
+                short[] shorts = new short[data.length / 2];
+                ByteBuffer.wrap(data).asShortBuffer().get(shorts);//转码并复制
+                audioTrack.write(shorts, 0, shorts.length);
+                break;
+        }
+        audioTrack.pause();
+        audioTrack.flush();
     }
 
     private void playAudio(File file) throws IOException {
