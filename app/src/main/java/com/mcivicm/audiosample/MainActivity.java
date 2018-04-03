@@ -318,7 +318,6 @@ public class MainActivity extends AppCompatActivity {
                 break;
         }
         audioTrack.pause();
-        audioTrack.flush();
     }
 
     private void playAudio(File file) throws IOException {
