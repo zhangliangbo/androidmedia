@@ -1,8 +1,14 @@
 package com.mcivicm.audiosample;
 
 import android.media.MediaPlayer;
+import android.os.Environment;
 
+import org.apache.commons.io.IOUtils;
+
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 /**
  * 媒体播放器
@@ -164,4 +170,98 @@ public class MediaPlayerHelper {
         }
     }
 
+    /**
+     * 播放mp3
+     *
+     * @param is
+     */
+    public static void playMp3(InputStream is) {
+        if (is == null) return;
+        try {
+            File file = new File(
+                    Environment.getExternalStorageDirectory()
+                            + File.separator
+                            + "temp.mp3"
+            );
+            FileOutputStream fos = new FileOutputStream(file);
+            IOUtils.copy(is, fos);
+            IOUtils.closeQuietly(is);
+            IOUtils.closeQuietly(fos);
+            play(file.getAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 播放wav
+     *
+     * @param is
+     */
+    public static void playWav(InputStream is) {
+        if (is == null) return;
+        try {
+            File file = new File(
+                    Environment.getExternalStorageDirectory()
+                            + File.separator
+                            + "temp.wav"
+            );
+            FileOutputStream fos = new FileOutputStream(file);
+            IOUtils.copy(is, fos);
+            IOUtils.closeQuietly(is);
+            IOUtils.closeQuietly(fos);
+            play(file.getAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 播放pcm
+     *
+     * @param is
+     */
+    public static void playPcm(InputStream is) {
+        if (is == null) return;
+        try {
+            File file = new File(
+                    Environment.getExternalStorageDirectory()
+                            + File.separator
+                            + "temp.pcm"
+            );
+            FileOutputStream fos = new FileOutputStream(file);
+            IOUtils.copy(is, fos);
+            IOUtils.closeQuietly(is);
+            IOUtils.closeQuietly(fos);
+            play(file.getAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void play(String path) {
+        try {
+            final MediaPlayer mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(path);
+            mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer mp) {
+                    mediaPlayer.stop();
+                    mediaPlayer.release();
+                }
+            });
+            mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(MediaPlayer mp, int what, int extra) {
+                    mediaPlayer.stop();
+                    mediaPlayer.release();
+                    return true;
+                }
+            });
+            mediaPlayer.prepare();
+            mediaPlayer.start();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }

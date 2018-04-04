@@ -8,6 +8,7 @@ import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.MotionEvent;
@@ -16,12 +17,14 @@ import android.widget.Button;
 
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
+import org.apache.commons.io.IOUtils;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -173,29 +176,70 @@ public class MainActivity extends AppCompatActivity {
                 .setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
-                        try {
-                            final MediaPlayer mediaPlayer = new MediaPlayer();
-                            mediaPlayer.setDataSource(MainActivity.this, Uri.parse(""));
-                            mediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-                                @Override
-                                public void onCompletion(MediaPlayer mp) {
-                                    mediaPlayer.stop();
-                                    mediaPlayer.release();
-                                }
-                            });
-                            mediaPlayer.setOnErrorListener(new MediaPlayer.OnErrorListener() {
-                                @Override
-                                public boolean onError(MediaPlayer mp, int what, int extra) {
-                                    mediaPlayer.stop();
-                                    mediaPlayer.release();
-                                    return true;
-                                }
-                            });
-                            mediaPlayer.prepare();
-                            mediaPlayer.start();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
+                        new RxPermissions(MainActivity.this)
+                                .request(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                                .subscribe(new Observer<Boolean>() {
+                                    @Override
+                                    public void onSubscribe(Disposable d) {
+
+                                    }
+
+                                    @Override
+                                    public void onNext(Boolean aBoolean) {
+                                        if (aBoolean) {
+                                            File pcm = new File(Environment.getExternalStorageDirectory() + File.separator + "nature.pcm");
+                                            File wav = new File(Environment.getExternalStorageDirectory() + File.separator + "temp.wav");
+                                            try {
+                                                IOUtils.copy(getResources().openRawResource(R.raw.nature), new FileOutputStream(wav));
+                                                Converter.mav2pcm(wav.getAbsolutePath(), pcm.getAbsolutePath());
+                                                AudioTrack audioTrack = new AudioTrack(
+                                                        AudioManager.STREAM_MUSIC,
+                                                        AudioRecordHelper.sampleRate,
+                                                        AudioFormat.CHANNEL_OUT_STEREO,
+                                                        AudioFormat.ENCODING_PCM_FLOAT,
+                                                        AudioRecord.getMinBufferSize(
+                                                                AudioRecordHelper.sampleRate,
+                                                                AudioFormat.CHANNEL_OUT_STEREO,
+                                                                AudioFormat.ENCODING_PCM_FLOAT
+                                                        ),
+                                                        AudioTrack.MODE_STREAM
+                                                );
+                                                FileInputStream fileInputStream = new FileInputStream(pcm);
+                                                byte[] buffer = new byte[AudioRecord.getMinBufferSize(
+                                                        AudioRecordHelper.sampleRate,
+                                                        AudioFormat.CHANNEL_OUT_STEREO,
+                                                        AudioFormat.ENCODING_PCM_FLOAT
+                                                )];
+                                                int len;
+                                                audioTrack.play();
+                                                while (true) {
+                                                    len = fileInputStream.read(buffer);
+                                                    if (len > 0) {
+                                                        audioTrack.write(buffer, 0, len);
+                                                    } else {
+                                                        break;
+                                                    }
+                                                }
+                                                IOUtils.closeQuietly(fileInputStream);
+                                                audioTrack.stop();
+                                                audioTrack.release();
+                                            } catch (IOException e) {
+                                                e.printStackTrace();
+                                            }
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onError(Throwable e) {
+
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+
+                                    }
+                                });
+
                     }
                 });
         requestPermission();

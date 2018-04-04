@@ -39,4 +39,5 @@ dependencies {
     implementation files('libs/jl1.0.1.jar')
     implementation files('libs/tritonus_share.jar')
     compile 'com.android.support:multidex:1.0.3'
+    implementation files('libs/commons-io-2.6.jar')
 }
