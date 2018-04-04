@@ -1,5 +1,7 @@
 package com.mcivicm.audiosample;
 
+import android.media.MediaPlayer;
+
 import org.junit.Test;
 import org.reactivestreams.Subscription;
 
@@ -86,6 +88,17 @@ public class ExampleUnitTest {
         short[] d = new short[bytes.length / 2];
         ByteBuffer.wrap(bytes).asShortBuffer().get(d);//转化数据
         System.out.println("shorts: " + Arrays.toString(d));
+
+    }
+
+    @Test
+    public void assertTest() throws Exception {
+
+    }
+
+
+    @Test
+    public void mp3() throws Exception {
 
     }
 }

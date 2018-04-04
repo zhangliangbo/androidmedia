@@ -4,8 +4,6 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 
-import java.nio.ByteBuffer;
-
 /**
  * 音轨助手
  */

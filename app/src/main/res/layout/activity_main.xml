@@ -10,7 +10,7 @@
         android:id="@+id/record_audio"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="长按开始录音"
+        android:text="按住录音"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
@@ -24,5 +24,14 @@
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/record_audio" />
+
+    <Button
+        android:id="@+id/play_mp3"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="播放mp3"
+        app:layout_constraintLeft_toLeftOf="parent"
+        app:layout_constraintRight_toRightOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/record_video" />
 
 </android.support.constraint.ConstraintLayout>
