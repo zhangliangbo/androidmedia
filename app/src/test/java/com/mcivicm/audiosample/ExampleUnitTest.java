@@ -5,6 +5,7 @@ import android.media.MediaPlayer;
 import org.junit.Test;
 import org.reactivestreams.Subscription;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.ShortBuffer;
 import java.util.Arrays;
@@ -100,5 +101,13 @@ public class ExampleUnitTest {
     @Test
     public void mp3() throws Exception {
 
+    }
+
+    @Test
+    public void pcm2wav() throws Exception {
+        File file = new File("C:\\Users\\bdlm2\\Desktop\\raw.pcm");
+        if (file.exists()) {
+            Converter.pcm2wav(file.getAbsolutePath(),"C:\\Users\\bdlm2\\Desktop\\raw.wav");
+        }
     }
 }

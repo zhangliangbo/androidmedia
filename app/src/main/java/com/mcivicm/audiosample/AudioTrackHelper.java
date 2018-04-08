@@ -18,7 +18,7 @@ public class AudioTrackHelper {
         return new AudioTrack(
                 AudioManager.STREAM_MUSIC,
                 AudioRecordHelper.sampleRate,
-                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.CHANNEL_OUT_STEREO,
                 audioFormat,
                 AudioRecordHelper.minBufferSize(audioFormat),
                 AudioTrack.MODE_STREAM

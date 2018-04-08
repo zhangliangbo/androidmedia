@@ -3,11 +3,9 @@ package com.mcivicm.audiosample;
 import android.Manifest;
 import android.content.Intent;
 import android.media.AudioFormat;
-import android.media.AudioManager;
-import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
-import android.net.Uri;
+import android.media.MediaRecorder;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -41,10 +39,17 @@ import okhttp3.Response;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 import okio.ByteString;
+import omrecorder.AudioChunk;
+import omrecorder.AudioRecordConfig;
+import omrecorder.OmRecorder;
+import omrecorder.PullTransport;
+import omrecorder.PullableSource;
+import omrecorder.Recorder;
 
 public class MainActivity extends AppCompatActivity {
 
-    public boolean havePermission = false;
+    public boolean haveAudioPermission = false;
+    public boolean haveStoragePermission = false;
 
     private Button recordAudio;
     private WebSocket ws = null;
@@ -54,6 +59,8 @@ public class MainActivity extends AppCompatActivity {
     private PublishSubject<String> publishSubject = PublishSubject.create();
 
     private RequestType requestType = RequestType.None;//请求类型
+
+    private Recorder omRecorder;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
             public boolean onTouch(View v, MotionEvent event) {
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
-                        if (havePermission) {
+                        if (haveAudioPermission) {
                             requestType = RequestType.SpeakLock;
                             sendText("speaklock");
                         } else {
@@ -79,9 +86,9 @@ public class MainActivity extends AppCompatActivity {
                                         @Override
                                         public void onNext(Boolean aBoolean) {
                                             if (aBoolean) {
-                                                havePermission = true;
+                                                haveAudioPermission = true;
                                             } else {
-                                                havePermission = false;
+                                                haveAudioPermission = false;
                                                 new RxPermissions(MainActivity.this)
                                                         .shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.RECORD_AUDIO)
                                                         .subscribe(new Observer<Boolean>() {
@@ -129,12 +136,6 @@ public class MainActivity extends AppCompatActivity {
                         break;
                 }
                 return true;
-            }
-        });
-        recordAudio.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                recordAudio.performClick();
             }
         });
 
@@ -187,44 +188,58 @@ public class MainActivity extends AppCompatActivity {
                                     @Override
                                     public void onNext(Boolean aBoolean) {
                                         if (aBoolean) {
-                                            File pcm = new File(Environment.getExternalStorageDirectory() + File.separator + "nature.pcm");
-                                            File wav = new File(Environment.getExternalStorageDirectory() + File.separator + "temp.wav");
-                                            try {
-                                                IOUtils.copy(getResources().openRawResource(R.raw.nature), new FileOutputStream(wav));
-                                                Converter.mav2pcm(wav.getAbsolutePath(), pcm.getAbsolutePath());
-                                                AudioTrack audioTrack = new AudioTrack(
-                                                        AudioManager.STREAM_MUSIC,
-                                                        AudioRecordHelper.sampleRate,
-                                                        AudioFormat.CHANNEL_OUT_STEREO,
-                                                        AudioFormat.ENCODING_PCM_FLOAT,
-                                                        AudioRecord.getMinBufferSize(
-                                                                AudioRecordHelper.sampleRate,
-                                                                AudioFormat.CHANNEL_OUT_STEREO,
-                                                                AudioFormat.ENCODING_PCM_FLOAT
-                                                        ),
-                                                        AudioTrack.MODE_STREAM
-                                                );
-                                                FileInputStream fileInputStream = new FileInputStream(pcm);
-                                                byte[] buffer = new byte[AudioRecord.getMinBufferSize(
-                                                        AudioRecordHelper.sampleRate,
-                                                        AudioFormat.CHANNEL_OUT_STEREO,
-                                                        AudioFormat.ENCODING_PCM_FLOAT
-                                                )];
-                                                int len;
-                                                audioTrack.play();
-                                                while (true) {
-                                                    len = fileInputStream.read(buffer);
+//                                            File pcm = new File(Environment.getExternalStorageDirectory() + File.separator + "nature.pcm");
+//                                            File wav = new File(Environment.getExternalStorageDirectory() + File.separator + "temp.wav");
+//                                            try {
+//                                                IOUtils.copy(getResources().openRawResource(R.raw.nature), new FileOutputStream(wav));
+//                                                Converter.mav2pcm(wav.getAbsolutePath(), pcm.getAbsolutePath());
+//                                                int bufferSize = AudioRecord.getMinBufferSize(
+//                                                        22050,
+//                                                        AudioFormat.CHANNEL_OUT_MONO,
+//                                                        AudioFormat.ENCODING_PCM_8BIT
+//                                                );
+//                                                AudioTrack audioTrack = new AudioTrack(
+//                                                        AudioManager.STREAM_MUSIC,
+//                                                        22050,
+//                                                        AudioFormat.CHANNEL_OUT_MONO,
+//                                                        AudioFormat.ENCODING_PCM_8BIT,
+//                                                        bufferSize,
+//                                                        AudioTrack.MODE_STREAM
+//                                                );
+//                                                FileInputStream fileInputStream = new FileInputStream(pcm);
+//                                                byte[] buffer = new byte[bufferSize];
+//                                                int len;
+//                                                audioTrack.play();
+//                                                while (true) {
+//                                                    len = fileInputStream.read(buffer);
+//                                                    if (len > 0) {
+//                                                        audioTrack.write(buffer, 0, len);
+//                                                    } else {
+//                                                        break;
+//                                                    }
+//                                                }
+//                                                IOUtils.closeQuietly(fileInputStream);
+//                                                audioTrack.stop();
+//                                                audioTrack.release();
+//                                            } catch (IOException e) {
+//                                                e.printStackTrace();
+//                                            }
+                                            InputStream is = getResources().openRawResource(R.raw.raw);
+                                            byte[] buffer = new byte[4096];
+                                            int len;
+                                            while (true) {
+                                                try {
+                                                    len = is.read(buffer);
                                                     if (len > 0) {
-                                                        audioTrack.write(buffer, 0, len);
+                                                        byte[] useful = new byte[len];
+                                                        System.arraycopy(buffer, 0, useful, 0, len);
+                                                        playAudioSteamContinuously(useful, AudioFormat.ENCODING_PCM_16BIT);
                                                     } else {
                                                         break;
                                                     }
+                                                } catch (IOException e) {
+                                                    break;
                                                 }
-                                                IOUtils.closeQuietly(fileInputStream);
-                                                audioTrack.stop();
-                                                audioTrack.release();
-                                            } catch (IOException e) {
-                                                e.printStackTrace();
                                             }
                                         }
                                     }
@@ -242,6 +257,42 @@ public class MainActivity extends AppCompatActivity {
 
                     }
                 });
+
+        findViewById(R.id.om_record).setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        File file = new File(Environment.getExternalStorageDirectory(), "om.wav");
+                        omRecorder = OmRecorder.wav(
+                                new PullTransport.Default(
+                                        new PullableSource.Default(
+                                                new AudioRecordConfig.Default(
+                                                        MediaRecorder.AudioSource.DEFAULT,
+                                                        AudioFormat.ENCODING_PCM_16BIT,
+                                                        AudioFormat.CHANNEL_IN_STEREO,
+                                                        44100
+                                                )
+                                        )
+                                ),
+                                file
+                        );
+                        omRecorder.startRecording();
+                        ((Button) v).setText("正在录音中...");
+                        break;
+                    case MotionEvent.ACTION_UP:
+                        try {
+                            omRecorder.stopRecording();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        ((Button) v).setText("OMRECORD");
+                        break;
+                }
+                return true;
+            }
+        });
+
         requestPermission();
     }
 
@@ -280,7 +331,7 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onNext(Boolean aBoolean) {
-                havePermission = aBoolean;
+                haveAudioPermission = aBoolean;
             }
 
             @Override
@@ -487,6 +538,7 @@ public class MainActivity extends AppCompatActivity {
         public void onComplete() {
 
         }
+
     }
 
     //播放数据流
@@ -508,6 +560,64 @@ public class MainActivity extends AppCompatActivity {
         audioTrack.pause();
     }
 
+    /*
+    使用am库录音
+     */
+    private void startRecordAudioAm() {
+        new RxPermissions(MainActivity.this)
+                .request(Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+                        if (aBoolean) {
+                            File file = new File(Environment.getExternalStorageDirectory(), "om.wav");
+                            omRecorder = OmRecorder.wav(
+                                    new PullTransport.Default(
+                                            new PullableSource.Default(
+                                                    new AudioRecordConfig.Default(
+                                                            MediaRecorder.AudioSource.DEFAULT,
+                                                            AudioFormat.ENCODING_PCM_16BIT,
+                                                            AudioFormat.CHANNEL_IN_STEREO,
+                                                            44100
+                                                    )
+                                            )
+                                    ),
+                                    file
+                            );
+                            recordAudio.setText("正在录音中...");
+                            omRecorder.startRecording();
+                        } else {
+                            ToastHelper.toast(MainActivity.this, "未授权，无法录音");
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
+    }
+
+    private void stopRecordAudioAm() {
+        if (omRecorder != null) {
+            try {
+                omRecorder.stopRecording();
+            } catch (IOException e) {
+                //ignore
+            }
+        }
+    }
+
     private void startRecordAudioStream() {
         new RxPermissions(MainActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO)
@@ -515,7 +625,7 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public ObservableSource<short[]> apply(Boolean aBoolean) throws Exception {
                         if (aBoolean) {
-                            return AudioRecordHelper.pcm16BitAudioData();//在主线程执行
+                            return AudioRecordHelper.pcm16BitAudioData();
                         } else {
                             throw new Exception("您未授权录音权限，无法录音");
                         }
@@ -576,6 +686,32 @@ public class MainActivity extends AppCompatActivity {
         } else {
             ws.send(ByteString.of(data, 0, data.length));
         }
+    }
+
+    private void writePcm(byte[] raw) {
+        File file = new File(Environment.getExternalStorageDirectory() + File.separator + "raw.pcm");
+        if (!file.exists()) {
+            try {
+                if (!file.createNewFile()) {
+                    return;
+                }
+            } catch (IOException e) {
+                return;
+            }
+        }
+        try {
+            FileOutputStream fos = new FileOutputStream(file, true);
+            fos.write(raw);
+            fos.close();
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void playPcm(InputStream inputStream) {
+
     }
 
 

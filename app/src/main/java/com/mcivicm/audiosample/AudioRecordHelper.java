@@ -3,6 +3,8 @@ package com.mcivicm.audiosample;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
+import android.media.audiofx.NoiseSuppressor;
 
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
@@ -43,18 +45,33 @@ public class AudioRecordHelper {
 
     //最小的缓存大小
     public static int minBufferSize(int audioFormat) {
-        return AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, audioFormat);//8位对应字节输出流，16位对应短整型输出流
+        return AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_STEREO, audioFormat);//8位对应字节输出流，16位对应短整型输出流
     }
 
     //新建一个实例
     private static AudioRecord newInstance(int audioFormat) {
-        return new AudioRecord(
+        AudioRecord audioRecord = new AudioRecord(
                 MediaRecorder.AudioSource.DEFAULT,
                 sampleRate,//适用于所有设备
-                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.CHANNEL_IN_STEREO,
                 audioFormat,
                 2 * minBufferSize(audioFormat)//两倍的缓冲
         );
+        //噪声抑制
+        NoiseSuppressor noiseSuppressor = NoiseSuppressor.create(audioRecord.getAudioSessionId());
+        if (noiseSuppressor != null) {
+            if (!noiseSuppressor.getEnabled()) {
+                noiseSuppressor.setEnabled(true);
+            }
+        }
+        //回声消除
+        AcousticEchoCanceler acousticEchoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
+        if (acousticEchoCanceler != null) {
+            if (!acousticEchoCanceler.getEnabled()) {
+                acousticEchoCanceler.setEnabled(true);
+            }
+        }
+        return audioRecord;
     }
 
     private static class PCM16BitAudioSource extends Observable<short[]> {
