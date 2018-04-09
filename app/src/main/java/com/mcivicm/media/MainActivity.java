@@ -639,37 +639,4 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
     }
-
-    private void startVolume(final VolumeView volumeView) {
-        Observable.intervalRange(1, 60, 0, 1, TimeUnit.SECONDS)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(new Observer<Long>() {
-
-                    Random random = new Random();
-
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Long aLong) {
-                        volumeView.animateWidth(volumeView.getWidth() + nextRandom());
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-
-                    int nextRandom() {
-                        return (int) (random.nextDouble() * 100) - 30;
-                    }
-                });
-    }
 }
