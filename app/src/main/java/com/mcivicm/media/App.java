@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media;
 
 import android.support.multidex.MultiDexApplication;
 

@@ -1,10 +1,8 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media.helper;
 
 import android.media.AudioFormat;
 import android.media.MediaRecorder;
 import android.os.Environment;
-import android.util.Log;
-import android.widget.Toast;
 
 import org.apache.commons.io.IOUtils;
 
@@ -15,13 +13,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 
-import omrecorder.AudioChunk;
 import omrecorder.AudioRecordConfig;
 import omrecorder.OmRecorder;
 import omrecorder.PullTransport;
 import omrecorder.PullableSource;
-import omrecorder.Recorder;
-import omrecorder.WriteAction;
 
 /**
  * 格式转换

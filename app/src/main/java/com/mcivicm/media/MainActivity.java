@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media;
 
 import android.Manifest;
 import android.content.Intent;
@@ -13,6 +13,12 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 
+import com.mcivicm.media.helper.AudioRecordHelper;
+import com.mcivicm.media.helper.AudioTrackHelper;
+import com.mcivicm.media.helper.MediaPlayerHelper;
+import com.mcivicm.media.helper.MediaRecorderHelper;
+import com.mcivicm.media.helper.ToastHelper;
+import com.mcivicm.media.helper.WebSocketHelper;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import org.jetbrains.annotations.Nullable;
@@ -23,7 +29,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
@@ -169,143 +174,6 @@ public class MainActivity extends AppCompatActivity {
                                 });
                     }
                 });
-
-        findViewById(R.id.play_mp3)
-                .setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        new RxPermissions(MainActivity.this)
-                                .request(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                .subscribe(new Observer<Boolean>() {
-                                    @Override
-                                    public void onSubscribe(Disposable d) {
-
-                                    }
-
-                                    @Override
-                                    public void onNext(Boolean aBoolean) {
-                                        if (aBoolean) {
-                                            InputStream is = getResources().openRawResource(R.raw.raw16);
-                                            byte[] buffer = new byte[4096];
-                                            int len;
-                                            AudioTrack audioTrack = AudioTrackHelper.createInstance(44100, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
-                                            audioTrack.play();
-                                            while (true) {
-                                                try {
-                                                    len = is.read(buffer);
-                                                    if (len > 0) {
-                                                        audioTrack.write(buffer, 0, len);
-                                                    } else {
-                                                        break;
-                                                    }
-                                                } catch (IOException e) {
-                                                    break;
-                                                }
-                                            }
-                                            audioTrack.stop();
-                                            audioTrack.release();
-                                            ToastHelper.toast(MainActivity.this, "播放完成");
-                                        }
-                                    }
-
-                                    @Override
-                                    public void onError(Throwable e) {
-
-                                    }
-
-                                    @Override
-                                    public void onComplete() {
-
-                                    }
-                                });
-
-                    }
-                });
-
-        findViewById(R.id.om_record).setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        File file = new File(Environment.getExternalStorageDirectory(), "om16.pcm");
-                        omRecorder = OmRecorder.pcm(
-                                new PullTransport.Default(
-                                        new PullableSource.Default(
-                                                new AudioRecordConfig.Default(
-                                                        MediaRecorder.AudioSource.DEFAULT,
-                                                        AudioFormat.ENCODING_PCM_16BIT,
-                                                        AudioFormat.CHANNEL_IN_MONO,
-                                                        44100
-                                                )
-                                        )
-                                ),
-                                file
-                        );
-                        omRecorder.startRecording();
-                        ((Button) v).setText("正在录音中...");
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        try {
-                            omRecorder.stopRecording();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                        ToastHelper.toast(MainActivity.this, "om16.pcm录制完成");
-                        ((Button) v).setText("OMRECORD");
-                        break;
-                }
-                return true;
-            }
-        });
-
-        findViewById(R.id.simple_record).setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(final View v, MotionEvent event) {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        AudioRecordHelper
-                                .pcmAudioData(AudioRecordHelper.sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                                .doOnDispose(new Action() {
-                                    @Override
-                                    public void run() throws Exception {
-                                        ((Button) v).setText("SimpleRecord");
-                                        ToastHelper.toast(MainActivity.this, "录制完成");
-                                    }
-                                })
-                                .subscribe(new Observer<byte[]>() {
-                                    @Override
-                                    public void onSubscribe(Disposable d) {
-                                        ((Button) v).setText("正在录音中...");
-                                        realTimeRecordDisposable = d;
-                                    }
-
-                                    @Override
-                                    public void onNext(byte[] bytes) {
-                                        writePcm(bytes);
-                                        ToastHelper.toast(MainActivity.this, "write: " + bytes.length);
-                                    }
-
-                                    @Override
-                                    public void onError(Throwable e) {
-
-                                    }
-
-                                    @Override
-                                    public void onComplete() {
-
-                                    }
-                                });
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        if (realTimeRecordDisposable != null && !realTimeRecordDisposable.isDisposed()) {
-                            realTimeRecordDisposable.dispose();
-                        }
-                        break;
-                }
-                return true;
-            }
-        });
-
         requestPermission();
     }
 
@@ -313,7 +181,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onStart() {
         super.onStart();
         audioTrack = AudioTrackHelper.createInstance(AudioRecordHelper.sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        WebSocketHelper.newInstance(new WSListener((byte[]) null));
+        WebSocketHelper.newInstance(new WSListener((byte[]) null));//长连接服务器
         if (!publishSubject.hasObservers()) {
             publishSubject
                     .observeOn(AndroidSchedulers.mainThread())//传到主线程上
@@ -336,27 +204,52 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void requestPermission() {
-        doIHaveAudioPermission().subscribe(new Observer<Boolean>() {
-            @Override
-            public void onSubscribe(Disposable d) {
+        new RxPermissions(MainActivity.this)
+                .request(Manifest.permission.RECORD_AUDIO)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
 
-            }
+                    }
 
-            @Override
-            public void onNext(Boolean aBoolean) {
-                haveAudioPermission = aBoolean;
-            }
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+                        haveAudioPermission = aBoolean;
+                    }
 
-            @Override
-            public void onError(Throwable e) {
+                    @Override
+                    public void onError(Throwable e) {
 
-            }
+                    }
 
-            @Override
-            public void onComplete() {
+                    @Override
+                    public void onComplete() {
 
-            }
-        });
+                    }
+                });
+        new RxPermissions(MainActivity.this)
+                .request(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+                        haveStoragePermission = aBoolean;
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
     }
 
     private Observable<Boolean> doIHaveAudioPermission() {

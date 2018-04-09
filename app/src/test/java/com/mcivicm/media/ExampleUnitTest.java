@@ -1,13 +1,12 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media;
 
-import android.media.MediaPlayer;
+import com.mcivicm.media.helper.Converter;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.nio.ShortBuffer;
 import java.util.Arrays;
 
 import io.reactivex.BackpressureStrategy;
@@ -15,12 +14,6 @@ import io.reactivex.Flowable;
 import io.reactivex.FlowableEmitter;
 import io.reactivex.FlowableOnSubscribe;
 import io.reactivex.FlowableSubscriber;
-import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableOnSubscribe;
-import io.reactivex.Observer;
-import io.reactivex.disposables.Disposable;
-import io.reactivex.functions.Cancellable;
 
 import static org.junit.Assert.*;
 

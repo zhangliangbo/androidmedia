@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media.helper;
 
 import android.media.MediaRecorder;
 import android.os.Build;

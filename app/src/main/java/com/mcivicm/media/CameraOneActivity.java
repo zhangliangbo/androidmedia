@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media;
 
 import android.Manifest;
 import android.graphics.Bitmap;
@@ -16,6 +16,8 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.mcivicm.media.helper.CameraHelper;
+import com.mcivicm.media.helper.ToastHelper;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import io.reactivex.Observer;

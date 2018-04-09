@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media.helper;
 
 import android.app.Activity;
 import android.content.Context;
@@ -7,7 +7,6 @@ import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.hardware.Camera;
 import android.view.Surface;
-import android.widget.Toast;
 
 import java.io.BufferedOutputStream;
 import java.io.File;

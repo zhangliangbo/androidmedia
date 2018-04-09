@@ -1,6 +1,5 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media.helper;
 
-import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;

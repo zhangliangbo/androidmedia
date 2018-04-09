@@ -1,4 +1,4 @@
-package com.mcivicm.audiosample;
+package com.mcivicm.media;
 
 import android.content.Context;
 import android.support.test.InstrumentationRegistry;

@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="com.mcivicm.audiosample.MainActivity">
+    tools:context="com.mcivicm.media.MainActivity">
 
     <Button
         android:id="@+id/record_audio"
@@ -24,34 +24,6 @@
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/record_audio" />
-
-    <Button
-        android:id="@+id/play_mp3"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="播放"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/record_video" />
-
-
-    <Button
-        android:id="@+id/om_record"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="OmRecord"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/play_mp3" />
-
-    <Button
-        android:id="@+id/simple_record"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="SimpleRecord"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/om_record" />
 
 
 </android.support.constraint.ConstraintLayout>
