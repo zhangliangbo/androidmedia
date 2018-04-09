@@ -27,7 +27,20 @@ public class AudioRecordHelper {
      * @return
      */
     public static Observable<byte[]> pcmAudioData(int sampleRate, int channelFormat, int audioFormat) {
-        return new PCMAudioSource(createInstance(sampleRate, channelFormat, audioFormat));
+        return new PCMAudioSource(createInstance(sampleRate, channelFormat, audioFormat), null);
+    }
+
+    /**
+     * pcm实时语音数据
+     *
+     * @param sampleRate
+     * @param channelFormat
+     * @param audioFormat
+     * @param recordFinishedCallback 非主线程调用，【不要】执行UI相关操作
+     * @return
+     */
+    public static Observable<byte[]> pcmAudioData(int sampleRate, int channelFormat, int audioFormat, Runnable recordFinishedCallback) {
+        return new PCMAudioSource(createInstance(sampleRate, channelFormat, audioFormat), recordFinishedCallback);
     }
 
     /**
@@ -66,14 +79,16 @@ public class AudioRecordHelper {
     private static class PCMAudioSource extends Observable<byte[]> {
 
         private AudioRecord audioRecord;
+        private Runnable callback;
 
-        PCMAudioSource(AudioRecord audioRecord) {
+        PCMAudioSource(AudioRecord audioRecord, Runnable callback) {
             this.audioRecord = audioRecord;
+            this.callback = callback;
         }
 
         @Override
         protected void subscribeActual(Observer<? super byte[]> observer) {
-            observer.onSubscribe(new PollTask(audioRecord, observer));
+            observer.onSubscribe(new PollTask(audioRecord, observer, callback));
         }
     }
 
@@ -81,11 +96,13 @@ public class AudioRecordHelper {
 
         ExecutorService service = Executors.newSingleThreadExecutor();
         AudioRecord audioRecord;
+        Runnable callback;
         Observer<? super byte[]> observer;
 
-        PollTask(AudioRecord audioRecord, Observer<? super byte[]> observer) {
+        PollTask(AudioRecord audioRecord, Observer<? super byte[]> observer, Runnable callback) {
             this.audioRecord = audioRecord;
             this.observer = observer;
+            this.callback = callback;
             service.execute(this);//开启抓取数据线程
         }
 
@@ -125,6 +142,10 @@ public class AudioRecordHelper {
                 audioRecord.stop();
                 audioRecord.release();
                 service.shutdown();
+            }
+            //一切都结束后执行的操作，出错也执行
+            if (callback != null) {
+                callback.run();
             }
         }
     }

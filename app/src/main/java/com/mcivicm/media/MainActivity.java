@@ -522,7 +522,18 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public ObservableSource<byte[]> apply(Boolean aBoolean) throws Exception {
                         if (aBoolean) {
-                            return AudioRecordHelper.pcmAudioData(AudioRecordHelper.sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+                            return AudioRecordHelper.pcmAudioData(
+                                    AudioRecordHelper.sampleRate,
+                                    AudioFormat.CHANNEL_IN_MONO,
+                                    AudioFormat.ENCODING_PCM_16BIT,
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            //结束语音
+                                            sendText("speakend");
+                                        }
+                                    }
+                            );
                         } else {
                             throw new Exception("您未授权录音权限，无法录音");
                         }
@@ -532,7 +543,6 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void run() throws Exception {
                         recordAudio.setText("按住录音");
-                        sendText("speakend");//通知服务器结束
                     }
                 })
                 .subscribe(new Observer<byte[]>() {
