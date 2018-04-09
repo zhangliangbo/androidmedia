@@ -14,13 +14,13 @@ public class AudioTrackHelper {
      *
      * @return
      */
-    public static AudioTrack newInstance(int audioFormat) {
+    public static AudioTrack createInstance(int sampleRate, int channelFormat, int audioFormat) {
         return new AudioTrack(
                 AudioManager.STREAM_MUSIC,
-                AudioRecordHelper.sampleRate,
-                AudioFormat.CHANNEL_OUT_STEREO,
+                sampleRate,
+                channelFormat,
                 audioFormat,
-                AudioRecordHelper.minBufferSize(audioFormat),
+                AudioTrack.getMinBufferSize(sampleRate, channelFormat, audioFormat),
                 AudioTrack.MODE_STREAM
         );
     }

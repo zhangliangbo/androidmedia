@@ -95,7 +95,7 @@ public class Converter {
                                 )
                         )
                 ),
-                new File(Environment.getExternalStorageDirectory(), "om.wav")
+                new File(Environment.getExternalStorageDirectory(), "om_file.wav")
         );
     }
 
