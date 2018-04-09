@@ -11,6 +11,8 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Button;
 
 import com.mcivicm.media.helper.AudioRecordHelper;
@@ -19,6 +21,8 @@ import com.mcivicm.media.helper.MediaPlayerHelper;
 import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.helper.WebSocketHelper;
+import com.mcivicm.media.view.VolumeView;
+import com.nineoldandroids.animation.ValueAnimator;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import org.jetbrains.annotations.Nullable;
@@ -29,6 +33,8 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
@@ -174,6 +180,24 @@ public class MainActivity extends AppCompatActivity {
                                 });
                     }
                 });
+
+        final VolumeView volumeView = findViewById(R.id.volume);
+        findViewById(R.id.button).setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                VolumeView vv = (VolumeView) v.getParent();
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        volumeView.showEdge();
+                        startRecordAudioStream();
+                        break;
+                    case MotionEvent.ACTION_UP:
+                        volumeView.hideEdge();
+                        break;
+                }
+                return true;
+            }
+        });
         requestPermission();
     }
 
@@ -187,6 +211,7 @@ public class MainActivity extends AppCompatActivity {
                     .observeOn(AndroidSchedulers.mainThread())//传到主线程上
                     .subscribe(new MainThreadObserver());
         }
+
     }
 
     @Override
@@ -613,5 +638,38 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void startVolume(final VolumeView volumeView) {
+        Observable.intervalRange(1, 60, 0, 1, TimeUnit.SECONDS)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(new Observer<Long>() {
+
+                    Random random = new Random();
+
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Long aLong) {
+                        volumeView.animateWidth(volumeView.getWidth() + nextRandom());
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+
+                    int nextRandom() {
+                        return (int) (random.nextDouble() * 100) - 30;
+                    }
+                });
     }
 }
