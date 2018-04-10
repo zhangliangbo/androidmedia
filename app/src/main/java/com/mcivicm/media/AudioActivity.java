@@ -29,7 +29,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
-import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
@@ -145,11 +144,6 @@ public class AudioActivity extends AppCompatActivity {
 
                     }
                 });
-    }
-
-    private Observable<Boolean> doIHaveAudioPermission() {
-        return new RxPermissions(AudioActivity.this)
-                .request(Manifest.permission.RECORD_AUDIO);
     }
 
     //开始录制语音文件
@@ -518,7 +512,7 @@ public class AudioActivity extends AppCompatActivity {
                         requestType = RequestType.SpeakLock;
                         sendText("speaklock");
                     } else {
-                        doIHaveAudioPermission()
+                        AudioRecordHelper.recordAudioPermission(AudioActivity.this)
                                 .subscribe(new Observer<Boolean>() {
                                     @Override
                                     public void onSubscribe(Disposable d) {
@@ -527,43 +521,12 @@ public class AudioActivity extends AppCompatActivity {
 
                                     @Override
                                     public void onNext(Boolean aBoolean) {
-                                        if (aBoolean) {
-                                            haveAudioPermission = true;
-                                        } else {
-                                            haveAudioPermission = false;
-                                            new RxPermissions(AudioActivity.this)
-                                                    .shouldShowRequestPermissionRationale(AudioActivity.this, Manifest.permission.RECORD_AUDIO)
-                                                    .subscribe(new Observer<Boolean>() {
-                                                        @Override
-                                                        public void onSubscribe(Disposable d) {
-
-                                                        }
-
-                                                        @Override
-                                                        public void onNext(Boolean aBoolean) {
-                                                            if (aBoolean) {
-                                                                ToastHelper.toast(AudioActivity.this, "您需要授权录音权限才能开始录音");
-                                                            } else {
-                                                                ToastHelper.toast(AudioActivity.this, "您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面打开");
-                                                            }
-                                                        }
-
-                                                        @Override
-                                                        public void onError(Throwable e) {
-
-                                                        }
-
-                                                        @Override
-                                                        public void onComplete() {
-
-                                                        }
-                                                    });
-                                        }
+                                        haveAudioPermission = aBoolean;
                                     }
 
                                     @Override
                                     public void onError(Throwable e) {
-
+                                        ToastHelper.toast(AudioActivity.this, e.getMessage());
                                     }
 
                                     @Override

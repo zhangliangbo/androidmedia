@@ -20,8 +20,11 @@ import com.mcivicm.media.helper.CameraHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
+import io.reactivex.Observable;
+import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
 
 import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
@@ -31,13 +34,15 @@ import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
 public class CameraOneActivity extends AppCompatActivity {
 
-    Button start;
-    SurfaceView surfaceView;
-    TextView information;
+    private boolean haveCameraPermission = false;
 
-    Camera camera;
+    private Button start;
+    private SurfaceView surfaceView;
+    private TextView information;
 
-    ConstraintLayout pictureOperation;
+    private Camera camera;
+
+    private ConstraintLayout pictureOperation;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -137,27 +142,29 @@ public class CameraOneActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        int total = CameraHelper.cameraNumber();
-        if (total > 0) {
-            if (total == 1) {
-                camera = CameraHelper.open(0);
-                int orientation = CameraHelper.getDisplayOrientation(CameraOneActivity.this, 0);
-                camera.getParameters().set("orientation", orientation);//后续使用
-                camera.setDisplayOrientation(orientation);
-                surfaceView.getHolder().addCallback(new Callback(camera));
-            } else {
-                for (int i = 0; i < total; i++) {
-                    if (CameraHelper.getInfo(i).facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-                        camera = CameraHelper.open(i);
-                        int orientation = CameraHelper.getDisplayOrientation(CameraOneActivity.this, i);
-                        camera.getParameters().set("orientation", orientation);
-                        camera.setDisplayOrientation(orientation);
-                        surfaceView.getHolder().addCallback(new Callback(camera));
+        if (haveCameraPermission) {
+            int total = CameraHelper.cameraNumber();
+            if (total > 0) {
+                if (total == 1) {
+                    camera = CameraHelper.open(0);
+                    int orientation = CameraHelper.getDisplayOrientation(CameraOneActivity.this, 0);
+                    camera.getParameters().set("orientation", orientation);//后续使用
+                    camera.setDisplayOrientation(orientation);
+                    surfaceView.getHolder().addCallback(new Callback(camera));
+                } else {
+                    for (int i = 0; i < total; i++) {
+                        if (CameraHelper.getInfo(i).facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                            camera = CameraHelper.open(i);
+                            int orientation = CameraHelper.getDisplayOrientation(CameraOneActivity.this, i);
+                            camera.getParameters().set("orientation", orientation);
+                            camera.setDisplayOrientation(orientation);
+                            surfaceView.getHolder().addCallback(new Callback(camera));
+                        }
                     }
                 }
+                //设置基本参数
+                CameraHelper.maxSize(camera);
             }
-            //设置基本参数
-            CameraHelper.maxSize(camera);
         }
     }
 
@@ -228,7 +235,7 @@ public class CameraOneActivity extends AppCompatActivity {
         }
     }
 
-    private class ShutterCallback implements Camera.ShutterCallback {
+    private class ShutterCallback implements android.hardware.Camera.ShutterCallback {
 
         @Override
         public void onShutter() {
@@ -236,10 +243,10 @@ public class CameraOneActivity extends AppCompatActivity {
         }
     }
 
-    private class PictureCallback implements Camera.PictureCallback {
+    private class PictureCallback implements android.hardware.Camera.PictureCallback {
 
         @Override
-        public void onPictureTaken(byte[] data, Camera camera) {
+        public void onPictureTaken(byte[] data, android.hardware.Camera camera) {
             //data是一个原始的JPEG图像数据，
             //在这里我们可以存储图片，很显然可以采用MediaStore
             //注意保存图片后，再次调用startPreview()回到预览

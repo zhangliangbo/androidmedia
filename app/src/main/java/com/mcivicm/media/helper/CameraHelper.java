@@ -1,5 +1,6 @@
 package com.mcivicm.media.helper;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -8,16 +9,56 @@ import android.graphics.Matrix;
 import android.hardware.Camera;
 import android.view.Surface;
 
+import com.mcivicm.media.CameraOneActivity;
+import com.tbruyelle.rxpermissions2.RxPermissions;
+
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.List;
+
+import io.reactivex.Observable;
+import io.reactivex.ObservableSource;
+import io.reactivex.functions.Function;
 
 /**
  * 摄像头助手
  */
 
 public class CameraHelper {
+
+    /**
+     * 获取摄像头的权限
+     *
+     * @param activity
+     * @return
+     */
+    public static Observable<Boolean> cameraPermission(final Activity activity) {
+        return new RxPermissions(activity)
+                .request(Manifest.permission.CAMERA)
+                .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                    @Override
+                    public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                        if (aBoolean) {
+                            return Observable.just(true);
+                        } else {
+                            return new RxPermissions(activity)
+                                    .shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)
+                                    .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                                        @Override
+                                        public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                                            if (aBoolean) {
+                                                return Observable.error(new Exception("您需要授权摄像头权限才能开始录音"));
+                                            } else {
+                                                return Observable.error(new Exception("您已拒绝了摄像头权限并选择不再提醒，如需重新打开摄像头权限，请在设置->权限里面打开"));
+                                            }
+                                        }
+                                    });
+                        }
+                    }
+                });
+    }
+
     /**
      * @return 摄像头的总数
      */

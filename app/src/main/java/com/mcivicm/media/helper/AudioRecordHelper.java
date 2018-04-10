@@ -1,17 +1,24 @@
 package com.mcivicm.media.helper;
 
+import android.Manifest;
+import android.app.Activity;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import android.media.audiofx.AcousticEchoCanceler;
 import android.media.audiofx.NoiseSuppressor;
+
+import com.mcivicm.media.AudioActivity;
+import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.reactivex.Observable;
+import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
 
 /**
  * 语音录制助手
@@ -20,6 +27,38 @@ import io.reactivex.disposables.Disposable;
 public class AudioRecordHelper {
 
     public static final int sampleRate = 44100;//采样率
+
+    /**
+     * 请求录音权限
+     *
+     * @param activity
+     * @return
+     */
+    public static Observable<Boolean> recordAudioPermission(final Activity activity) {
+        return new RxPermissions(activity)
+                .request(Manifest.permission.RECORD_AUDIO)
+                .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                    @Override
+                    public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                        if (aBoolean) {
+                            return Observable.just(true);
+                        } else {
+                            return new RxPermissions(activity)
+                                    .shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO)
+                                    .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                                        @Override
+                                        public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                                            if (aBoolean) {
+                                                return Observable.error(new Exception("您需要授权录音权限才能开始录音"));
+                                            } else {
+                                                return Observable.error(new Exception("您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面打开"));
+                                            }
+                                        }
+                                    });
+                        }
+                    }
+                });
+    }
 
     /**
      * pcm实时语音数据
