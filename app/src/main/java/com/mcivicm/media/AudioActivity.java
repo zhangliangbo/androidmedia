@@ -1,7 +1,6 @@
 package com.mcivicm.media;
 
 import android.Manifest;
-import android.content.Intent;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 import android.media.MediaPlayer;
@@ -9,7 +8,6 @@ import android.media.MediaRecorder;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -36,7 +34,6 @@ import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
 import io.reactivex.subjects.PublishSubject;
 import okhttp3.Response;
@@ -49,7 +46,7 @@ import omrecorder.PullTransport;
 import omrecorder.PullableSource;
 import omrecorder.Recorder;
 
-public class MainActivity extends AppCompatActivity {
+public class AudioActivity extends AppCompatActivity {
 
     public boolean haveAudioPermission = false;
     public boolean haveStoragePermission = false;
@@ -70,43 +67,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
         volumeView = findViewById(R.id.volume_view);
-
-        findViewById(R.id.record_video)
-                .setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        new RxPermissions(MainActivity.this)
-                                .request(Manifest.permission.CAMERA)
-                                .subscribe(new Observer<Boolean>() {
-                                    @Override
-                                    public void onSubscribe(Disposable d) {
-
-                                    }
-
-                                    @Override
-                                    public void onNext(Boolean aBoolean) {
-                                        if (aBoolean) {
-                                            startActivity(new Intent(MainActivity.this, CameraOneActivity.class));
-                                        } else {
-                                            ToastHelper.toast(MainActivity.this, "没有授权，不能录制视频");
-                                        }
-                                    }
-
-                                    @Override
-                                    public void onError(Throwable e) {
-
-                                    }
-
-                                    @Override
-                                    public void onComplete() {
-
-                                    }
-                                });
-                    }
-                });
-
         findViewById(R.id.record_audio).setOnTouchListener(new VolumeViewChildTouchListener());
         requestPermission();
     }
@@ -121,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
                     .observeOn(AndroidSchedulers.mainThread())//传到主线程上
                     .subscribe(new MainThreadObserver());
         }
-
     }
 
     @Override
@@ -139,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void requestPermission() {
-        new RxPermissions(MainActivity.this)
+        new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO)
                 .subscribe(new Observer<Boolean>() {
                     @Override
@@ -162,7 +122,7 @@ public class MainActivity extends AppCompatActivity {
 
                     }
                 });
-        new RxPermissions(MainActivity.this)
+        new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 .subscribe(new Observer<Boolean>() {
                     @Override
@@ -188,7 +148,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private Observable<Boolean> doIHaveAudioPermission() {
-        return new RxPermissions(MainActivity.this)
+        return new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO);
     }
 
@@ -208,16 +168,16 @@ public class MainActivity extends AppCompatActivity {
                             if (MediaRecorderHelper.prepare()) {
                                 MediaRecorderHelper.start();
                             } else {
-                                ToastHelper.toast(MainActivity.this, "录音初始化失败");
+                                ToastHelper.toast(AudioActivity.this, "录音初始化失败");
                             }
                         } else {
-                            ToastHelper.toast(MainActivity.this, "未授权，无法录音");
+                            ToastHelper.toast(AudioActivity.this, "未授权，无法录音");
                         }
                     }
 
                     @Override
                     public void onError(Throwable e) {
-                        ToastHelper.toast(MainActivity.this, e.getMessage());
+                        ToastHelper.toast(AudioActivity.this, e.getMessage());
                     }
 
                     @Override
@@ -310,7 +270,7 @@ public class MainActivity extends AppCompatActivity {
         public void onMessage(WebSocket webSocket, String text) {
             super.onMessage(webSocket, text);
             //这里非主线程，用PublishSubject传到主线程
-            ToastHelper.toast(MainActivity.this, text);
+            ToastHelper.toast(AudioActivity.this, text);
             publishSubject.onNext(text);
         }
 
@@ -318,7 +278,7 @@ public class MainActivity extends AppCompatActivity {
         public void onMessage(WebSocket webSocket, ByteString bytes) {
             super.onMessage(webSocket, bytes);
             playAudioSteamContinuously(bytes.toByteArray());
-            ToastHelper.toast(MainActivity.this, "收到：" + bytes.toByteArray().length);
+            ToastHelper.toast(AudioActivity.this, "收到：" + bytes.toByteArray().length);
         }
 
         @Override
@@ -370,7 +330,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             } else if (o instanceof Double) {
                 Double d = (Double) o;
-                volumeView.addWidth(2 * d.intValue());
+                volumeView.addWidth(3 * d.intValue());
             }
         }
 
@@ -400,7 +360,7 @@ public class MainActivity extends AppCompatActivity {
     使用am库录音
      */
     private void startRecordAudioAm() {
-        new RxPermissions(MainActivity.this)
+        new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 .subscribe(new Observer<Boolean>() {
                     @Override
@@ -427,7 +387,7 @@ public class MainActivity extends AppCompatActivity {
                             );
                             omRecorder.startRecording();
                         } else {
-                            ToastHelper.toast(MainActivity.this, "未授权，无法录音");
+                            ToastHelper.toast(AudioActivity.this, "未授权，无法录音");
                         }
                     }
 
@@ -454,7 +414,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startRecordAudioStream() {
-        new RxPermissions(MainActivity.this)
+        new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO)
                 .flatMap(new Function<Boolean, ObservableSource<byte[]>>() {
                     @Override
@@ -571,8 +531,8 @@ public class MainActivity extends AppCompatActivity {
                                             haveAudioPermission = true;
                                         } else {
                                             haveAudioPermission = false;
-                                            new RxPermissions(MainActivity.this)
-                                                    .shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+                                            new RxPermissions(AudioActivity.this)
+                                                    .shouldShowRequestPermissionRationale(AudioActivity.this, Manifest.permission.RECORD_AUDIO)
                                                     .subscribe(new Observer<Boolean>() {
                                                         @Override
                                                         public void onSubscribe(Disposable d) {
@@ -582,9 +542,9 @@ public class MainActivity extends AppCompatActivity {
                                                         @Override
                                                         public void onNext(Boolean aBoolean) {
                                                             if (aBoolean) {
-                                                                ToastHelper.toast(MainActivity.this, "您需要授权录音权限才能开始录音");
+                                                                ToastHelper.toast(AudioActivity.this, "您需要授权录音权限才能开始录音");
                                                             } else {
-                                                                ToastHelper.toast(MainActivity.this, "您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面打开");
+                                                                ToastHelper.toast(AudioActivity.this, "您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面打开");
                                                             }
                                                         }
 

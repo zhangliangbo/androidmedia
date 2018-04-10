@@ -17,6 +17,6 @@
         android:layout_height="55dip"
         android:layout_gravity="center"
         android:text="开始"
-        tools:context=".MainActivity" />
+        tools:context=".AudioActivity" />
 
 </LinearLayout>
