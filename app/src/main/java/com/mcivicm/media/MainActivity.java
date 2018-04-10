@@ -59,7 +59,6 @@ public class MainActivity extends AppCompatActivity {
     public boolean haveAudioPermission = false;
     public boolean haveStoragePermission = false;
 
-    private Button recordAudio;
     private WebSocket ws = null;
     private AudioTrack audioTrack;
 
@@ -74,78 +73,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        recordAudio = findViewById(R.id.record_audio);
-        recordAudio.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        if (haveAudioPermission) {
-                            requestType = RequestType.SpeakLock;
-                            sendText("speaklock");
-                        } else {
-                            doIHaveAudioPermission()
-                                    .subscribe(new Observer<Boolean>() {
-                                        @Override
-                                        public void onSubscribe(Disposable d) {
-
-                                        }
-
-                                        @Override
-                                        public void onNext(Boolean aBoolean) {
-                                            if (aBoolean) {
-                                                haveAudioPermission = true;
-                                            } else {
-                                                haveAudioPermission = false;
-                                                new RxPermissions(MainActivity.this)
-                                                        .shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.RECORD_AUDIO)
-                                                        .subscribe(new Observer<Boolean>() {
-                                                            @Override
-                                                            public void onSubscribe(Disposable d) {
-
-                                                            }
-
-                                                            @Override
-                                                            public void onNext(Boolean aBoolean) {
-                                                                if (aBoolean) {
-                                                                    ToastHelper.toast(MainActivity.this, "您需要授权录音权限才能开始录音");
-                                                                } else {
-                                                                    ToastHelper.toast(MainActivity.this, "您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面重新打开");
-                                                                }
-                                                            }
-
-                                                            @Override
-                                                            public void onError(Throwable e) {
-
-                                                            }
-
-                                                            @Override
-                                                            public void onComplete() {
-
-                                                            }
-                                                        });
-                                            }
-                                        }
-
-                                        @Override
-                                        public void onError(Throwable e) {
-
-                                        }
-
-                                        @Override
-                                        public void onComplete() {
-
-                                        }
-                                    });
-                        }
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        stopRecordAudioStream();
-                        break;
-                }
-                return true;
-            }
-        });
 
         findViewById(R.id.record_video)
                 .setOnClickListener(new View.OnClickListener() {
@@ -181,11 +108,10 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-        final VolumeView volumeView = findViewById(R.id.volume);
         findViewById(R.id.button).setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View v, MotionEvent event) {
-                VolumeView vv = (VolumeView) v.getParent();
+                VolumeView volumeView = (VolumeView) v.getParent();
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
                         volumeView.showEdge();
@@ -296,7 +222,6 @@ public class MainActivity extends AppCompatActivity {
                     public void onNext(Boolean aBoolean) {
                         if (aBoolean) {
                             if (MediaRecorderHelper.prepare()) {
-                                recordAudio.setText("正在录音中...");
                                 MediaRecorderHelper.start();
                             } else {
                                 ToastHelper.toast(MainActivity.this, "录音初始化失败");
@@ -332,13 +257,12 @@ public class MainActivity extends AppCompatActivity {
                 new MediaPlayer.OnCompletionListener() {
                     @Override
                     public void onCompletion(MediaPlayer mp) {
-                        recordAudio.setText("按住录音");
+
                     }
                 },
                 new MediaPlayer.OnErrorListener() {
                     @Override
                     public boolean onError(MediaPlayer mp, int what, int extra) {
-                        recordAudio.setText("按住录音");
                         return false;
                     }
                 });
@@ -511,7 +435,6 @@ public class MainActivity extends AppCompatActivity {
                                     ),
                                     file
                             );
-                            recordAudio.setText("正在录音中...");
                             omRecorder.startRecording();
                         } else {
                             ToastHelper.toast(MainActivity.this, "未授权，无法录音");
@@ -567,14 +490,13 @@ public class MainActivity extends AppCompatActivity {
                 .doOnDispose(new Action() {
                     @Override
                     public void run() throws Exception {
-                        recordAudio.setText("按住录音");
+
                     }
                 })
                 .subscribe(new Observer<byte[]>() {
                     @Override
                     public void onSubscribe(Disposable d) {
                         realTimeRecordDisposable = d;
-                        recordAudio.setText("正在录音中...");
                     }
 
                     @Override
@@ -637,6 +559,79 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    private class VolumeViewChildTouchListener implements View.OnTouchListener {
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (haveAudioPermission) {
+                        requestType = RequestType.SpeakLock;
+                        sendText("speaklock");
+                    } else {
+                        doIHaveAudioPermission()
+                                .subscribe(new Observer<Boolean>() {
+                                    @Override
+                                    public void onSubscribe(Disposable d) {
+
+                                    }
+
+                                    @Override
+                                    public void onNext(Boolean aBoolean) {
+                                        if (aBoolean) {
+                                            haveAudioPermission = true;
+                                        } else {
+                                            haveAudioPermission = false;
+                                            new RxPermissions(MainActivity.this)
+                                                    .shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.RECORD_AUDIO)
+                                                    .subscribe(new Observer<Boolean>() {
+                                                        @Override
+                                                        public void onSubscribe(Disposable d) {
+
+                                                        }
+
+                                                        @Override
+                                                        public void onNext(Boolean aBoolean) {
+                                                            if (aBoolean) {
+                                                                ToastHelper.toast(MainActivity.this, "您需要授权录音权限才能开始录音");
+                                                            } else {
+                                                                ToastHelper.toast(MainActivity.this, "您已拒绝了录音权限并选择不再提醒，如需重新打开录音权限，请在设置->权限里面打开");
+                                                            }
+                                                        }
+
+                                                        @Override
+                                                        public void onError(Throwable e) {
+
+                                                        }
+
+                                                        @Override
+                                                        public void onComplete() {
+
+                                                        }
+                                                    });
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onError(Throwable e) {
+
+                                    }
+
+                                    @Override
+                                    public void onComplete() {
+
+                                    }
+                                });
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    stopRecordAudioStream();
+                    break;
+            }
+            return true;
         }
     }
 }
