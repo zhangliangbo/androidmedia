@@ -15,6 +15,7 @@ import com.tbruyelle.rxpermissions2.RxPermissions;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.security.Policy;
 import java.util.List;
 
 import io.reactivex.Observable;
@@ -25,7 +26,38 @@ import io.reactivex.functions.Function;
  * 摄像头助手
  */
 
-public class CameraHelper {
+public class CameraOneHelper {
+    /**
+     * 存储权限
+     *
+     * @param activity
+     * @return
+     */
+    public static Observable<Boolean> storagePermission(final Activity activity) {
+        return new RxPermissions(activity)
+                .request(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                    @Override
+                    public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                        if (aBoolean) {
+                            return Observable.just(true);
+                        } else {
+                            return new RxPermissions(activity)
+                                    .shouldShowRequestPermissionRationale(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                                    .flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
+                                        @Override
+                                        public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                                            if (aBoolean) {//仅禁止
+                                                return Observable.error(new Exception("亲，您需要授权【读写】权限才能打开摄像头哦"));
+                                            } else {//禁止并且不再提醒
+                                                return Observable.error(new Exception("亲，您拒绝了【读写】权限并且决定不再提醒，如需重新开启【读写】权限，请到【设置】-【权限管理】中手动授权"));
+                                            }
+                                        }
+                                    });
+                        }
+                    }
+                });
+    }
 
     /**
      * 获取摄像头的权限
@@ -107,11 +139,24 @@ public class CameraHelper {
     }
 
     /**
+     * 设置图片的旋转角度
+     *
+     * @param camera
+     * @param rotation
+     */
+    public static void setPictureOrientation(Camera camera, int rotation) {
+        Camera.Parameters parameters = camera.getParameters();
+        parameters.setRotation(rotation);//图片的旋转角度
+        camera.setParameters(parameters);
+        camera.setDisplayOrientation(rotation);//预览的旋转角度
+    }
+
+    /**
      * 最大分辨率
      *
      * @param camera
      */
-    public static void maxSize(Camera camera) {
+    public static void maxResolution(Camera camera) {
         Camera.Parameters rawParameters = camera.getParameters();
         //查找最大预览分辨率并设置
         Camera.Size maxPreview = findMaxSize(rawParameters.getSupportedPreviewSizes());
