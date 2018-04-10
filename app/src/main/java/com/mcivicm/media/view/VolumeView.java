@@ -58,7 +58,7 @@ public class VolumeView extends RelativeLayout {
     public void showEdge() {
         View firstView = getChildAt(0);
         if (firstView != null && getWidth() != firstView.getWidth() + firstView.getWidth() / 10) {
-            animateWidth(firstView.getWidth() + firstView.getWidth() / 10, 300);//十分之一的边缘
+            animateWidth(firstView.getWidth() + firstView.getWidth() / 10, 100);//十分之一的边缘
         }
     }
 
@@ -68,7 +68,39 @@ public class VolumeView extends RelativeLayout {
     public void hideEdge() {
         View firstView = getChildAt(0);
         if (firstView != null) {
-            animateWidth(firstView.getWidth(), 300);
+            animateWidth(firstView.getWidth(), 100);
+        }
+    }
+
+    /**
+     * 添加宽度
+     *
+     * @param width
+     */
+    public void addWidth(int width) {
+        View firstView = getChildAt(0);
+        if (firstView != null) {
+            int startWidth = firstView.getWidth() + firstView.getWidth() / 10;//加上十分之一的边缘
+            ViewGroup.LayoutParams layoutParams = getLayoutParams();
+            layoutParams.width = startWidth + width;
+            layoutParams.height = startWidth + width;
+            setLayoutParams(layoutParams);
+        }
+    }
+
+    /**
+     * 添加高度
+     *
+     * @param height
+     */
+    public void addHeight(int height) {
+        View firstView = getChildAt(0);
+        if (firstView != null) {
+            int startHeight = firstView.getHeight() + firstView.getHeight() / 10;//加上十分之一的边缘
+            ViewGroup.LayoutParams layoutParams = getLayoutParams();
+            layoutParams.width = startHeight + height;
+            layoutParams.height = startHeight + height;
+            setLayoutParams(layoutParams);
         }
     }
 

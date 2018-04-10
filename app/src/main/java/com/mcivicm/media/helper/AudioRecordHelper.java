@@ -76,6 +76,33 @@ public class AudioRecordHelper {
         return audioRecord;
     }
 
+    /**
+     * 根据pcm数据计算音量
+     *
+     * @param pcm
+     */
+    public static double calculateVolume(byte[] pcm, int offset, int len) {
+        if (pcm == null || pcm.length == 0) return 0D;
+        byte[] useful = new byte[len];
+        System.arraycopy(pcm, offset, useful, 0, len);
+        long total = 0;
+        for (byte one : useful) {
+            total += one * one;
+        }
+        double mean = (double) total / (double) len;
+        return 20 * Math.log10(mean);
+    }
+
+    /**
+     * 根据pcm数据计算音量
+     *
+     * @param pcm
+     */
+    public static double calculateVolume(byte[] pcm) {
+        if (pcm == null || pcm.length == 0) return 0D;
+        return calculateVolume(pcm, 0, pcm.length);
+    }
+
     private static class PCMAudioSource extends Observable<byte[]> {
 
         private AudioRecord audioRecord;
@@ -143,7 +170,7 @@ public class AudioRecordHelper {
                 audioRecord.release();
                 service.shutdown();
             }
-            //一切都结束后执行的操作，出错也执行
+            //一切都结束后执行的操作
             if (callback != null) {
                 callback.run();
             }

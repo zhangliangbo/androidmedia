@@ -9,11 +9,9 @@ import android.media.MediaRecorder;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.WindowManager;
-import android.widget.Button;
 
 import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.AudioTrackHelper;
@@ -22,7 +20,6 @@ import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.helper.WebSocketHelper;
 import com.mcivicm.media.view.VolumeView;
-import com.nineoldandroids.animation.ValueAnimator;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import org.jetbrains.annotations.Nullable;
@@ -33,8 +30,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
@@ -63,16 +58,20 @@ public class MainActivity extends AppCompatActivity {
     private AudioTrack audioTrack;
 
     private Disposable realTimeRecordDisposable = null;
-    private PublishSubject<String> publishSubject = PublishSubject.create();
+    private PublishSubject<Object> publishSubject = PublishSubject.create();
 
     private RequestType requestType = RequestType.None;//请求类型
 
     private Recorder omRecorder;
 
+    private VolumeView volumeView;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        volumeView = findViewById(R.id.volume_view);
 
         findViewById(R.id.record_video)
                 .setOnClickListener(new View.OnClickListener() {
@@ -108,22 +107,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
 
-        findViewById(R.id.button).setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                VolumeView volumeView = (VolumeView) v.getParent();
-                switch (event.getAction()) {
-                    case MotionEvent.ACTION_DOWN:
-                        volumeView.showEdge();
-                        startRecordAudioStream();
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        volumeView.hideEdge();
-                        break;
-                }
-                return true;
-            }
-        });
+        findViewById(R.id.record_audio).setOnTouchListener(new VolumeViewChildTouchListener());
         requestPermission();
     }
 
@@ -359,7 +343,7 @@ public class MainActivity extends AppCompatActivity {
         None, SpeakLock, SpeakEnd
     }
 
-    private class MainThreadObserver implements Observer<String> {
+    private class MainThreadObserver implements Observer<Object> {
 
         @Override
         public void onSubscribe(Disposable d) {
@@ -367,20 +351,26 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        public void onNext(String s) {
-            switch (s) {
-                case "success":
-                    switch (requestType) {
-                        case SpeakLock:
-                            startRecordAudioStream();
-                            break;
-                        case SpeakEnd:
-                            break;
-                        case None:
-                            break;
-                    }
-                    requestType = RequestType.None;//一次请求后复位
-                    break;
+        public void onNext(Object o) {
+            if (o instanceof String) {
+                String s = (String) o;
+                switch (s) {
+                    case "success":
+                        switch (requestType) {
+                            case SpeakLock:
+                                startRecordAudioStream();
+                                break;
+                            case SpeakEnd:
+                                break;
+                            case None:
+                                break;
+                        }
+                        requestType = RequestType.None;//一次请求后复位
+                        break;
+                }
+            } else if (o instanceof Double) {
+                Double d = (Double) o;
+                volumeView.addWidth(2 * d.intValue());
             }
         }
 
@@ -487,12 +477,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 })
-                .doOnDispose(new Action() {
-                    @Override
-                    public void run() throws Exception {
-
-                    }
-                })
                 .subscribe(new Observer<byte[]>() {
                     @Override
                     public void onSubscribe(Disposable d) {
@@ -501,6 +485,7 @@ public class MainActivity extends AppCompatActivity {
 
                     @Override
                     public void onNext(byte[] bytes) {
+                        publishSubject.onNext(AudioRecordHelper.calculateVolume(bytes));
                         sendBytes(bytes);
                     }
 
@@ -569,6 +554,7 @@ public class MainActivity extends AppCompatActivity {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     if (haveAudioPermission) {
+                        volumeView.showEdge();
                         requestType = RequestType.SpeakLock;
                         sendText("speaklock");
                     } else {
@@ -629,6 +615,7 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case MotionEvent.ACTION_UP:
                     stopRecordAudioStream();
+                    volumeView.hideEdge();
                     break;
             }
             return true;
