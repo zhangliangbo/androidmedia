@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.hardware.Camera;
 import android.view.Surface;
@@ -121,21 +122,29 @@ public class CameraOneHelper {
     }
 
     /**
-     * 设置默认的照相参数
+     * 设置拍照参数
      *
      * @param camera
      */
-    public static void adaptOrientation(Context context, Camera camera) {
-        if (context.getResources().getConfiguration().orientation != Configuration.ORIENTATION_LANDSCAPE) {
-            //如果是竖屏
-//            parameter.set("orientation", "portrait");
-            //在2.2以上可以使用
-            camera.setDisplayOrientation(90);
-        } else {
-//            parameter.set("orientation", "landscape");
-            //在2.2以上可以使用
-            camera.setDisplayOrientation(0);
+    public static void pictureSetting(Camera camera) {
+        Camera.Parameters parameters = camera.getParameters();
+        parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+        camera.setParameters(parameters);
+    }
+
+    /**
+     * 设置录像参数
+     *
+     * @param camera
+     */
+    public static void videoSetting(Camera camera) {
+        Camera.Parameters parameters = camera.getParameters();
+        parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);//连续聚焦
+        parameters.setRecordingHint(true);//可能有风险
+        if (parameters.isVideoStabilizationSupported()) {
+            parameters.setVideoStabilization(true);
         }
+        camera.setParameters(parameters);
     }
 
     /**

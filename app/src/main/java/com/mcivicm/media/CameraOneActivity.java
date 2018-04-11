@@ -1,31 +1,43 @@
 package com.mcivicm.media;
 
 import android.content.ContentValues;
+import android.graphics.ImageFormat;
+import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.support.constraint.ConstraintLayout;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.widget.Button;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.ToastHelper;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Arrays;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Function;
+import io.reactivex.schedulers.Schedulers;
+import io.reactivex.subjects.PublishSubject;
 
 import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
@@ -43,10 +55,17 @@ public class CameraOneActivity extends AppCompatActivity {
 
     private ConstraintLayout pictureOperation;
 
+    private PublishSubject<Object> publishSubject = PublishSubject.create();//发布
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera_one);
+        if (!publishSubject.hasObservers()) {
+            publishSubject
+                    .observeOn(Schedulers.computation())//特别注意，发送到computation线程，避免主线程拥挤
+                    .subscribe(new SubjectObserver());
+        }
         start = findViewById(R.id.start);
         surfaceView = findViewById(R.id.surface_view);
         information = findViewById(R.id.information);
@@ -59,14 +78,14 @@ public class CameraOneActivity extends AppCompatActivity {
         pictureOperation.findViewById(R.id.picture_cancel).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                togglePictureOperation(false, 300);
+                togglePictureOperation(false, 150);
                 camera.startPreview();
             }
         });
         pictureOperation.findViewById(R.id.picture_confirm).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                togglePictureOperation(false, 300);
+                togglePictureOperation(false, 150);
                 camera.startPreview();
             }
         });
@@ -75,6 +94,13 @@ public class CameraOneActivity extends AppCompatActivity {
             public void onGlobalLayout() {
                 togglePictureOperation(false, 0);
                 pictureOperation.getViewTreeObserver().removeGlobalOnLayoutListener(this);
+            }
+        });
+        surfaceView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                togglePictureOperation(false, 150);
+                camera.startPreview();
             }
         });
         start.setOnClickListener(new View.OnClickListener() {
@@ -128,7 +154,9 @@ public class CameraOneActivity extends AppCompatActivity {
                     CameraOneActivity.this.camera = camera;
 
                     holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
+
                     try {
+                        camera.setPreviewCallback(new PreviewCallback());
                         camera.setPreviewDisplay(holder);
                     } catch (Exception e) {
                         ToastHelper.toast(CameraOneActivity.this, "设置图像预览失败:" + e.getMessage());
@@ -156,6 +184,7 @@ public class CameraOneActivity extends AppCompatActivity {
             camera.stopPreview();
 
             try {
+                camera.setPreviewCallback(new PreviewCallback());
                 camera.setPreviewDisplay(holder);
             } catch (Exception e) {
                 ToastHelper.toast(CameraOneActivity.this, "设置图像预览失败:" + e.getMessage());
@@ -215,7 +244,7 @@ public class CameraOneActivity extends AppCompatActivity {
 
         @Override
         public void onShutter() {
-            Toast.makeText(CameraOneActivity.this, "this is a sound", Toast.LENGTH_SHORT).show();
+            ToastHelper.toast(CameraOneActivity.this, "this is a sound.");
         }
     }
 
@@ -239,9 +268,83 @@ public class CameraOneActivity extends AppCompatActivity {
             } catch (Exception e) {
                 //ignore
             }
-            togglePictureOperation(true, 300);
+            togglePictureOperation(true, 150);
         }
 
+    }
+
+    private class PreviewCallback implements android.hardware.Camera.PreviewCallback {
+
+        @Override
+        public void onPreviewFrame(byte[] data, Camera camera) {
+            publishSubject.onNext(
+                    new PreviewData(
+                            camera.getParameters().getPreviewFormat(),
+                            data,
+                            camera.getParameters().getPreviewSize().width,
+                            camera.getParameters().getPreviewSize().height
+                    )
+            );//发送到computation线程处理
+        }
+    }
+
+
+    private class PreviewData {
+
+        int format;
+        byte[] data;
+        int width;
+        int height;
+
+        PreviewData(int format, byte[] data, int width, int height) {
+            this.format = format;
+            this.data = data;
+            this.width = width;
+            this.height = height;
+        }
+    }
+
+
+    private class SubjectObserver implements Observer<Object> {
+
+        Rect rect = new Rect();
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(Object o) {
+            if (o instanceof PreviewData) {
+                PreviewData previewData = (PreviewData) o;
+                Log.d("preview", "is jpeg: " + (previewData.format == ImageFormat.JPEG));
+//                YuvImage yuvImage = new YuvImage(previewData.data, previewData.format, previewData.width, previewData.height, null);
+//                rect.set(0, 0, previewData.width, previewData.height);
+//                File file = new File(Environment.getExternalStorageDirectory(), System.currentTimeMillis() + ".jpeg");
+//                try {
+//                    FileOutputStream fos = new FileOutputStream(file);
+//                    if (yuvImage.compressToJpeg(rect, 100, fos)) {
+//                        Log.d("preview", "write success");
+//                    }
+//                    fos.close();
+//                } catch (FileNotFoundException e) {
+//                    //ignore
+//                } catch (IOException e) {
+//                    //ignore
+//                }
+            }
+        }
+
+        @Override
+        public void onError(Throwable e) {
+            ToastHelper.toast(CameraOneActivity.this, e.getMessage());
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
     }
 
     private void togglePictureOperation(boolean show, long duration) {
@@ -251,4 +354,5 @@ public class CameraOneActivity extends AppCompatActivity {
             animate(pictureOperation).y(-pictureOperation.getHeight()).setDuration(duration).start();
         }
     }
+
 }
