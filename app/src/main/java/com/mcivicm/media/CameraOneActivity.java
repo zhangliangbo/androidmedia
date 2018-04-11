@@ -1,7 +1,10 @@
 package com.mcivicm.media;
 
 import android.content.ContentValues;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.YuvImage;
 import android.hardware.Camera;
@@ -282,7 +285,8 @@ public class CameraOneActivity extends AppCompatActivity {
                             camera.getParameters().getPreviewFormat(),
                             data,
                             camera.getParameters().getPreviewSize().width,
-                            camera.getParameters().getPreviewSize().height
+                            camera.getParameters().getPreviewSize().height,
+                            camera.getParameters().getInt("rotation")
                     )
             );//发送到computation线程处理
         }
@@ -295,12 +299,14 @@ public class CameraOneActivity extends AppCompatActivity {
         byte[] data;
         int width;
         int height;
+        int rotation;
 
-        PreviewData(int format, byte[] data, int width, int height) {
+        PreviewData(int format, byte[] data, int width, int height, int rotation) {
             this.format = format;
             this.data = data;
             this.width = width;
             this.height = height;
+            this.rotation = rotation;
         }
     }
 
@@ -318,21 +324,27 @@ public class CameraOneActivity extends AppCompatActivity {
         public void onNext(Object o) {
             if (o instanceof PreviewData) {
                 PreviewData previewData = (PreviewData) o;
-                Log.d("preview", "is jpeg: " + (previewData.format == ImageFormat.JPEG));
-//                YuvImage yuvImage = new YuvImage(previewData.data, previewData.format, previewData.width, previewData.height, null);
-//                rect.set(0, 0, previewData.width, previewData.height);
-//                File file = new File(Environment.getExternalStorageDirectory(), System.currentTimeMillis() + ".jpeg");
-//                try {
-//                    FileOutputStream fos = new FileOutputStream(file);
-//                    if (yuvImage.compressToJpeg(rect, 100, fos)) {
-//                        Log.d("preview", "write success");
-//                    }
-//                    fos.close();
-//                } catch (FileNotFoundException e) {
-//                    //ignore
-//                } catch (IOException e) {
-//                    //ignore
-//                }
+                if (previewData.data == null || previewData.data.length == 0) return;
+                FileOutputStream fos = null;
+                try {
+                    fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), System.currentTimeMillis() + ".jpeg"));
+                    byte[] rotate = CameraOneHelper.rotateYUV420Degree90(previewData.data, previewData.width, previewData.height);
+                    YuvImage yuvImage = new YuvImage(rotate, previewData.format, previewData.width, previewData.height, null);
+                    rect.set(0, 0, previewData.width, previewData.height);
+                    if (yuvImage.compressToJpeg(rect, 100, fos)) {
+                        Log.d("preview", "write success");
+                    }
+                } catch (Exception e) {
+                    //ignore
+                } finally {
+                    if (fos != null) {
+                        try {
+                            fos.close();
+                        } catch (IOException e1) {
+                            e1.printStackTrace();
+                        }
+                    }
+                }
             }
         }
 
@@ -345,6 +357,10 @@ public class CameraOneActivity extends AppCompatActivity {
         public void onComplete() {
 
         }
+    }
+
+    private void processPreviewData(PreviewData previewData) {
+
     }
 
     private void togglePictureOperation(boolean show, long duration) {
