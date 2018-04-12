@@ -55,6 +55,7 @@ public class CameraOneActivity extends AppCompatActivity {
     private TextView information;
 
     private Camera camera;
+    private byte[] buffer;
 
     private ConstraintLayout pictureOperation;
 
@@ -154,12 +155,22 @@ public class CameraOneActivity extends AppCompatActivity {
 
                 @Override
                 public void onNext(Camera camera) {
+                    if (buffer == null) {
+                        buffer = new byte[
+                                camera.getParameters().getPreviewSize().width
+                                        * camera.getParameters().getPreviewSize().height
+                                        * ImageFormat.getBitsPerPixel(camera.getParameters().getPreviewFormat()) / 8
+                                ];
+                    }
                     CameraOneActivity.this.camera = camera;
+
+                    //预览数据回调
+                    camera.addCallbackBuffer(buffer);//给碗才有饭啊
+                    camera.setPreviewCallbackWithBuffer(new PreviewCallback());
 
                     holder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
 
                     try {
-                        camera.setPreviewCallback(new PreviewCallback());
                         camera.setPreviewDisplay(holder);
                     } catch (Exception e) {
                         ToastHelper.toast(CameraOneActivity.this, "设置图像预览失败:" + e.getMessage());
@@ -184,10 +195,12 @@ public class CameraOneActivity extends AppCompatActivity {
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             if (holder.getSurface() == null) return;
 
-            camera.stopPreview();
+            camera.stopPreview();//这里会移除buffer，下面再加一遍
+
+            camera.addCallbackBuffer(buffer);//给碗才有饭啊
+            camera.setPreviewCallbackWithBuffer(new PreviewCallback());
 
             try {
-                camera.setPreviewCallback(new PreviewCallback());
                 camera.setPreviewDisplay(holder);
             } catch (Exception e) {
                 ToastHelper.toast(CameraOneActivity.this, "设置图像预览失败:" + e.getMessage());
@@ -289,6 +302,7 @@ public class CameraOneActivity extends AppCompatActivity {
                             camera.getParameters().getInt("rotation")
                     )
             );//发送到computation线程处理
+            camera.addCallbackBuffer(buffer);//每次接收数据后会从队列中移除，所以需要重新添加一遍
         }
     }
 
@@ -323,6 +337,7 @@ public class CameraOneActivity extends AppCompatActivity {
         @Override
         public void onNext(Object o) {
             if (o instanceof PreviewData) {
+                Log.d("preview", "receive preview data");
                 PreviewData previewData = (PreviewData) o;
                 if (previewData.data == null || previewData.data.length == 0) return;
                 FileOutputStream fos = null;
@@ -357,10 +372,6 @@ public class CameraOneActivity extends AppCompatActivity {
         public void onComplete() {
 
         }
-    }
-
-    private void processPreviewData(PreviewData previewData) {
-
     }
 
     private void togglePictureOperation(boolean show, long duration) {
