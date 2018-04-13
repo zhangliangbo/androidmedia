@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.hardware.Camera;
+import android.util.Log;
 import android.view.Surface;
 
 import com.mcivicm.media.CameraOneActivity;
@@ -17,6 +18,8 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.security.Policy;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 import io.reactivex.Observable;
@@ -148,17 +151,27 @@ public class CameraOneHelper {
     }
 
     /**
-     * 设置图片的旋转角度
+     * 设置预览的旋转角度
+     *
+     * @param camera
+     * @param orientation
+     */
+    public static void setPreviewOrientation(Camera camera, int orientation) {
+        camera.setDisplayOrientation(orientation);//预览的旋转角度
+    }
+
+    /**
+     * 设置图片旋转角
      *
      * @param camera
      * @param rotation
      */
-    public static void setPictureOrientation(Camera camera, int rotation) {
+    public static void setPictureRotation(Camera camera, int rotation) {
         Camera.Parameters parameters = camera.getParameters();
-        parameters.setRotation(rotation);//图片的旋转角度
+        parameters.setRotation(rotation);
         camera.setParameters(parameters);
-        camera.setDisplayOrientation(rotation);//预览的旋转角度
     }
+
 
     /**
      * 最大分辨率
@@ -188,21 +201,19 @@ public class CameraOneHelper {
      * @param width
      * @param height
      */
-    public static void bestSize(Camera camera, int width, int height) {
+    public static void bestResolution(Camera camera, int width, int height) {
         if (width == 0 || height == 0) {//提出杂质
             return;
         }
         Camera.Parameters rawParameters = camera.getParameters();
-        //查找最佳预览分辨率并设置
-        Camera.Size bestPreviewSize = findBestSize(
-                rawParameters.getSupportedPreviewSizes(),
-                width,
-                height
+        //查找【最大预览分辨率】并设置
+        Camera.Size bestPreviewSize = findMaxSize(
+                rawParameters.getSupportedPreviewSizes()
         );
         if (bestPreviewSize != null) {
             rawParameters.setPreviewSize(bestPreviewSize.width, bestPreviewSize.height);
         }
-        //查找最佳图片分辨率并设置
+        //查找【最佳图片分辨率】并设置，不用最大分辨率是为了节省空间
         Camera.Size bestPictureSize = findBestSize(
                 rawParameters.getSupportedPictureSizes(),
                 width,
@@ -251,6 +262,25 @@ public class CameraOneHelper {
             result = (info.orientation - degrees + 360) % 360;
         }
         return result;
+    }
+
+    /**
+     * 获取图片的旋转角
+     *
+     * @param cameraId
+     * @param orientation 手机的方位角，竖屏0，横屏90
+     * @return
+     */
+    public static int getPictureRotation(int cameraId, int orientation) {
+        Camera.CameraInfo info = getInfo(cameraId);
+        orientation = (orientation + 45) / 90 * 90;
+        int rotation;
+        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            rotation = (info.orientation - orientation + 360) % 360;
+        } else {  // back-facing camera
+            rotation = (info.orientation + orientation) % 360;
+        }
+        return rotation;
     }
 
     /**
@@ -316,9 +346,29 @@ public class CameraOneHelper {
         return null;
     }
 
+    //找寻最合适的分辨率
     private static Camera.Size findBestSize(List<Camera.Size> list, int width, int height) {
         if (list != null && list.size() > 0) {
-            //给定的比例
+            Collections.sort(list, new Comparator<Camera.Size>() {
+                @Override
+                public int compare(Camera.Size o1, Camera.Size o2) {
+                    return o2.height * o2.width - o1.height * o1.width;
+                }
+            });
+            StringBuilder sb = new StringBuilder();
+            sb.append("{");
+            for (Camera.Size size : list) {
+                sb.append("{").append(size.height).append(",").append(size.width).append("}").append(",");
+            }
+            sb.append("}");
+            Log.d("zhang", sb.toString());
+            //先找找有没有高和宽完全相同的分辨率
+            for (Camera.Size size : list) {
+                if (size.height == width) {
+                    return size;
+                }
+            }
+            //如果，没有根据给定的比例来找
             float ratio = (float) width / (float) height;
             //最佳大小
             Camera.Size minDiffSize = list.get(0);

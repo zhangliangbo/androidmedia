@@ -8,12 +8,16 @@ import org.reactivestreams.Subscription;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.BackpressureStrategy;
 import io.reactivex.Flowable;
 import io.reactivex.FlowableEmitter;
 import io.reactivex.FlowableOnSubscribe;
 import io.reactivex.FlowableSubscriber;
+import io.reactivex.Observable;
+import io.reactivex.Observer;
+import io.reactivex.disposables.Disposable;
 
 import static org.junit.Assert.*;
 
@@ -100,7 +104,33 @@ public class ExampleUnitTest {
     public void pcm2wav() throws Exception {
         File file = new File("C:\\Users\\bdlm2\\Desktop\\raw.pcm");
         if (file.exists()) {
-            Converter.pcm2wav(file.getAbsolutePath(),"C:\\Users\\bdlm2\\Desktop\\raw.wav");
+            Converter.pcm2wav(file.getAbsolutePath(), "C:\\Users\\bdlm2\\Desktop\\raw.wav");
         }
+    }
+
+    @Test
+    public void timer() throws Exception {
+        Observable.intervalRange(0, 10000, 0, 1, TimeUnit.MILLISECONDS)
+                .blockingSubscribe(new Observer<Long>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Long aLong) {
+                        System.out.println("aLong: " + aLong);
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
     }
 }
