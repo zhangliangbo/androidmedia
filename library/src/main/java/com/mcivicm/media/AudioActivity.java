@@ -65,7 +65,7 @@ public class AudioActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_audio);
         volumeView = findViewById(R.id.volume_view);
         findViewById(R.id.record_audio).setOnTouchListener(new VolumeViewChildTouchListener());
         requestPermission();
