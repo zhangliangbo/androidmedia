@@ -269,7 +269,6 @@ public class CameraOneActivity extends AppCompatActivity {
                             CameraOneHelper.setPreviewOrientation(camera, orientation);
                             CameraOneHelper.setPictureRotation(camera, rotation);
                             CameraOneHelper.bestResolution(camera, surfaceView.getWidth(), surfaceView.getHeight());
-                            ToastHelper.toast(CameraOneActivity.this, "w: " + camera.getParameters().getPreviewSize().width + ", h: " + camera.getParameters().getPreviewSize().height);
                             CameraOneHelper.pictureSetting(camera);
                             return Observable.just(camera);
                         } else {
@@ -420,7 +419,6 @@ public class CameraOneActivity extends AppCompatActivity {
         @Override
         public void onNext(Object o) {
             if (o instanceof PreviewData) {
-                Log.d("preview", "receive preview data");
                 PreviewData previewData = (PreviewData) o;
                 if (previewData.data == null || previewData.data.length == 0) return;
 //                FileOutputStream fos = null;
@@ -459,7 +457,7 @@ public class CameraOneActivity extends AppCompatActivity {
 
 
     private void log(String text) {
-        Log.d("motion_event", text);
+        Log.d("zhang", text);
     }
 
 
@@ -484,14 +482,14 @@ public class CameraOneActivity extends AppCompatActivity {
                 if (canRecordAudio && canWriteStorage) {
                     final MediaRecorder mediaRecorder = new MediaRecorder();
                     //unlock之后获取下面两个参数会挂
-                    int width = camera.getParameters().getPreviewSize().width;
-                    int height = camera.getParameters().getPreviewSize().height;
+                    int width = camera.getParameters().getPictureSize().width;
+                    int height = camera.getParameters().getPictureSize().height;
                     camera.lock();
                     camera.unlock();
                     mediaRecorder.setCamera(camera);//必须在MediaRecorder一初始化就设置，然后再配置MediaRecorder
                     MediaRecorderHelper.configureVideoRecorder(mediaRecorder, width, height);
                     mediaRecorder.setOrientationHint(CameraOneHelper.getDisplayOrientation(CameraOneActivity.this, cameraId));
-                    Observable.intervalRange(0, 10000, 0, 1, TimeUnit.MILLISECONDS)
+                    Observable.intervalRange(0, 10010, 0, 1, TimeUnit.MILLISECONDS)
                             .doOnDispose(new Action() {
                                 @Override
                                 public void run() throws Exception {
@@ -526,7 +524,9 @@ public class CameraOneActivity extends AppCompatActivity {
                                 @Override
                                 public void onNext(Long aLong) {
                                     //"录制中"
-                                    recordButtonLayout.setOrientation((int) (360 * aLong.floatValue() / 10000));
+                                    int o = (int) (360 * aLong.floatValue() / 10000);
+                                    log(String.valueOf("long:" + aLong + ", o:" + o));
+                                    recordButtonLayout.setOrientation(o);
                                 }
 
                                 @Override

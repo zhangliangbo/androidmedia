@@ -335,13 +335,13 @@ public class CameraOneHelper {
 
     private static Camera.Size findMaxSize(List<Camera.Size> list) {
         if (list != null && list.size() > 0) {
-            Camera.Size max = list.get(0);
-            for (int i = 1; i < list.size(); i++) {
-                if (list.get(i).width * list.get(i).height > max.width * max.height) {
-                    max = list.get(i);
+            Collections.sort(list, new Comparator<Camera.Size>() {
+                @Override
+                public int compare(Camera.Size o1, Camera.Size o2) {
+                    return o2.width * o2.height - o1.width * o1.height;
                 }
-            }
-            return max;
+            });
+            return list.get(0);
         }
         return null;
     }
@@ -355,13 +355,6 @@ public class CameraOneHelper {
                     return o2.height * o2.width - o1.height * o1.width;
                 }
             });
-            StringBuilder sb = new StringBuilder();
-            sb.append("{");
-            for (Camera.Size size : list) {
-                sb.append("{").append(size.height).append(",").append(size.width).append("}").append(",");
-            }
-            sb.append("}");
-            Log.d("zhang", sb.toString());
             //先找找有没有高和宽完全相同的分辨率
             for (Camera.Size size : list) {
                 if (size.height == width) {

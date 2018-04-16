@@ -59,7 +59,7 @@
             android:layout_centerInParent="true"
             android:background="@drawable/audio_record"
             android:gravity="center"
-            android:text="A"
+            android:text=""
             tools:ignore="HardcodedText" />
 
     </com.mcivicm.media.view.VolumeView>

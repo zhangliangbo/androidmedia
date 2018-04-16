@@ -27,8 +27,8 @@ public class VolumeView extends RelativeLayout {
     private Paint paint = new Paint();
     private int orientation = 0;
     private RectF rect = new RectF();
-    private int edgeColor = Color.parseColor("#8000ff00");
-    private int orientationColor = Color.parseColor("#800000ff");
+    private int edgeColor = Color.parseColor("#40ffffff");
+    private int orientationColor = Color.parseColor("#80c0c0c0");
 
     public VolumeView(@NonNull Context context) {
         super(context);
