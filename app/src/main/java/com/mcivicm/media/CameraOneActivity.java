@@ -11,6 +11,7 @@ import android.provider.MediaStore;
 import android.support.annotation.Nullable;
 import android.support.constraint.ConstraintLayout;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
@@ -29,6 +30,7 @@ import com.mcivicm.media.view.VolumeView;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.text.SimpleDateFormat;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -50,9 +52,9 @@ import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 public class CameraOneActivity extends AppCompatActivity {
 
     private VolumeView recordButtonLayout;
-    private Button start;
+    private AppCompatTextView start;
     private SurfaceView surfaceView;
-    private TextView switchCamera;
+    private AppCompatTextView switchCamera;
 
     private Camera camera;
     private int cameraId = -1;
@@ -484,6 +486,7 @@ public class CameraOneActivity extends AppCompatActivity {
                     //unlock之后获取下面两个参数会挂
                     int width = camera.getParameters().getPreviewSize().width;
                     int height = camera.getParameters().getPreviewSize().height;
+                    camera.lock();
                     camera.unlock();
                     mediaRecorder.setCamera(camera);//必须在MediaRecorder一初始化就设置，然后再配置MediaRecorder
                     MediaRecorderHelper.configureVideoRecorder(mediaRecorder, width, height);
@@ -494,6 +497,7 @@ public class CameraOneActivity extends AppCompatActivity {
                                 public void run() throws Exception {
                                     //"录制结束"
                                     recordButtonLayout.hideEdge();
+                                    recordButtonLayout.setOrientation(0);
                                     try {
                                         mediaRecorder.stop();
                                         mediaRecorder.release();
@@ -513,14 +517,16 @@ public class CameraOneActivity extends AppCompatActivity {
                                     try {
                                         mediaRecorder.prepare();
                                         mediaRecorder.start();
-                                    } catch (IOException ex) {
+                                    } catch (Exception ex) {
                                         //ignore
+                                        ToastHelper.toast(CameraOneActivity.this, ex.getMessage());
                                     }
                                 }
 
                                 @Override
                                 public void onNext(Long aLong) {
                                     //"录制中"
+                                    recordButtonLayout.setOrientation((int) (360 * aLong.floatValue() / 10000));
                                 }
 
                                 @Override
@@ -534,6 +540,7 @@ public class CameraOneActivity extends AppCompatActivity {
                                     disposable = null;//这里要置空，否则又会执行一遍dispose()
                                     //"录制结束"
                                     recordButtonLayout.hideEdge();
+                                    recordButtonLayout.setOrientation(0);
                                     try {
                                         mediaRecorder.stop();
                                         mediaRecorder.release();

@@ -52,18 +52,19 @@
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent">
 
-        <Button
+        <android.support.v7.widget.AppCompatTextView
             android:id="@+id/record_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerInParent="true"
             android:background="@drawable/audio_record"
+            android:gravity="center"
             android:text="A"
             tools:ignore="HardcodedText" />
 
     </com.mcivicm.media.view.VolumeView>
 
-    <TextView
+    <android.support.v7.widget.AppCompatTextView
         android:id="@+id/switch_camera"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

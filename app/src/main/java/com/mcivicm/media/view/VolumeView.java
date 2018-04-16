@@ -5,6 +5,8 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -14,6 +16,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.RelativeLayout;
 
+import org.apache.commons.math3.util.MathUtils;
+
 /**
  * 音量视图
  */
@@ -21,6 +25,10 @@ import android.widget.RelativeLayout;
 public class VolumeView extends RelativeLayout {
 
     private Paint paint = new Paint();
+    private int orientation = 0;
+    private RectF rect = new RectF();
+    private int edgeColor = Color.parseColor("#8000ff00");
+    private int orientationColor = Color.parseColor("#800000ff");
 
     public VolumeView(@NonNull Context context) {
         super(context);
@@ -47,9 +55,40 @@ public class VolumeView extends RelativeLayout {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         canvas.drawColor(Color.TRANSPARENT);
-        paint.setColor(Color.parseColor("#8000ff00"));
+        paint.setColor(edgeColor);
         paint.setAntiAlias(true);
         canvas.drawCircle(getWidth() / 2, getHeight() / 2, Math.min(getWidth() / 2, getHeight() / 2), paint);
+        rect.set(0, 0, getWidth(), getHeight());
+        paint.setColor(orientationColor);
+        canvas.drawArc(rect, -90, orientation, true, paint);
+    }
+
+    /**
+     * 设置边缘颜色
+     *
+     * @param edgeColor
+     */
+    public void setEdgeColor(int edgeColor) {
+        this.edgeColor = edgeColor;
+    }
+
+    /**
+     * 设置方位角颜色
+     *
+     * @param orientationColor
+     */
+    public void setOrientationColor(int orientationColor) {
+        this.orientationColor = orientationColor;
+    }
+
+    /**
+     * 设置方位角
+     *
+     * @param degree
+     */
+    public void setOrientation(int degree) {
+        this.orientation = degree;
+        invalidate();
     }
 
     /**
