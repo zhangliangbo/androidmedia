@@ -3,5 +3,7 @@
     <color name="colorPrimary">#3F51B5</color>
     <color name="colorPrimaryDark">#303F9F</color>
     <color name="colorAccent">#FF4081</color>
-    <color name="volume_view_edge_color">#80c0c0c0</color>
+    <color name="video_edge_color">#80c0c0c0</color>
+    <color name="audio_edge_color">#80c0c0c0</color>
+    <color name="audio_color">#c0c0c0</color>
 </resources>
