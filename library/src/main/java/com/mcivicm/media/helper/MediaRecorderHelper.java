@@ -26,8 +26,8 @@ public class MediaRecorderHelper {
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT);//输入
             mediaRecorder.setAudioSamplingRate(44100);//采样率
             mediaRecorder.setAudioEncodingBitRate(96000);//编码比特率
-            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);//输出格式
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);//编码器
+            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);//输出格式
             if (tempAudioFile.exists() || tempAudioFile.createNewFile()) {
                 mediaRecorder.setOutputFile(tempAudioFile.getAbsolutePath());//输出文件
             }
