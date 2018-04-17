@@ -99,14 +99,20 @@ public class AudioRecordHelper {
                 AudioRecord.getMinBufferSize(sampleRate, channelFormat, audioFormat)//两倍的缓冲
         );
         //噪声抑制
-        NoiseSuppressor noiseSuppressor = NoiseSuppressor.create(audioRecord.getAudioSessionId());
+        NoiseSuppressor noiseSuppressor = null;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+            noiseSuppressor = NoiseSuppressor.create(audioRecord.getAudioSessionId());
+        }
         if (noiseSuppressor != null) {
             if (!noiseSuppressor.getEnabled()) {
                 noiseSuppressor.setEnabled(true);
             }
         }
         //回声消除
-        AcousticEchoCanceler acousticEchoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
+        AcousticEchoCanceler acousticEchoCanceler = null;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+            acousticEchoCanceler = AcousticEchoCanceler.create(audioRecord.getAudioSessionId());
+        }
         if (acousticEchoCanceler != null) {
             if (!acousticEchoCanceler.getEnabled()) {
                 acousticEchoCanceler.setEnabled(true);
