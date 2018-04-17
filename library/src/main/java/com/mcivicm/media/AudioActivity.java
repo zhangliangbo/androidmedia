@@ -67,6 +67,7 @@ public class AudioActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_audio);
         volumeView = findViewById(R.id.volume_view);
+        volumeView.setEdgeColor(getResources().getColor(R.color.audio_edge_color));
         findViewById(R.id.record_audio).setOnTouchListener(new VolumeViewChildTouchListener());
         requestPermission();
     }

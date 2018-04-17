@@ -4,7 +4,6 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/colorPrimaryDark"
     tools:context="com.mcivicm.media.AudioActivity">
 
     <com.mcivicm.media.view.VolumeView
@@ -24,7 +23,7 @@
             android:layout_centerInParent="true"
             android:background="@drawable/video_record"
             android:gravity="center"
-            android:text="A" />
+            android:text="" />
 
     </com.mcivicm.media.view.VolumeView>
 
