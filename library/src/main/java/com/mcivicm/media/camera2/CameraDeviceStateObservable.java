@@ -38,6 +38,7 @@ public class CameraDeviceStateObservable extends Observable<CameraDevice> {
     private class StateAdapter extends CameraDevice.StateCallback implements Disposable {
 
         Observer<? super CameraDevice> observer;
+        private CameraDevice cameraDevice = null;
 
         AtomicBoolean isDisposed = new AtomicBoolean(false);
 
@@ -55,6 +56,7 @@ public class CameraDeviceStateObservable extends Observable<CameraDevice> {
 
         @Override
         public void onOpened(@NonNull CameraDevice camera) {
+            cameraDevice = camera;
             if (!isDisposed()) {
                 observer.onNext(camera);
             }
@@ -62,6 +64,7 @@ public class CameraDeviceStateObservable extends Observable<CameraDevice> {
 
         @Override
         public void onDisconnected(@NonNull CameraDevice camera) {
+            cameraDevice = camera;
             //失去连接后关闭摄像头，如需使用重新开启
             camera.close();
         }
@@ -69,6 +72,7 @@ public class CameraDeviceStateObservable extends Observable<CameraDevice> {
         @Override
         public void onClosed(@NonNull CameraDevice camera) {
             super.onClosed(camera);
+            cameraDevice = camera;
             if (!isDisposed()) {
                 observer.onComplete();//相机使用结束
             }
@@ -76,6 +80,7 @@ public class CameraDeviceStateObservable extends Observable<CameraDevice> {
 
         @Override
         public void onError(@NonNull CameraDevice camera, int error) {
+            cameraDevice = camera;
             String errorString = "打开摄像头错误";
             switch (error) {
                 case CameraDevice.StateCallback.ERROR_CAMERA_IN_USE:
