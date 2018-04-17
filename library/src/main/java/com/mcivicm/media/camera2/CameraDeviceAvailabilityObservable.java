@@ -17,22 +17,22 @@ public class CameraDeviceAvailabilityObservable extends Observable<String> {
 
     private CameraManager cameraManager = null;
 
-    public CameraDeviceAvailabilityObservable(CameraManager cameraManager, Observer<? super String> observer) {
+    public CameraDeviceAvailabilityObservable(CameraManager cameraManager) {
         this.cameraManager = cameraManager;
     }
 
     @Override
     protected void subscribeActual(Observer<? super String> observer) {
-        observer.onSubscribe(new SourceAdapter(observer));
+        observer.onSubscribe(new AvailabilityAdapter(observer));
     }
 
-    private class SourceAdapter extends CameraManager.AvailabilityCallback implements Disposable {
+    private class AvailabilityAdapter extends CameraManager.AvailabilityCallback implements Disposable {
 
         private Observer<? super String> observer;
 
         private AtomicBoolean disposed = new AtomicBoolean(false);
 
-        public SourceAdapter(Observer<? super String> observer) {
+        AvailabilityAdapter(Observer<? super String> observer) {
             this.observer = observer;
             if (cameraManager != null) {
                 cameraManager.registerAvailabilityCallback(this, null);
