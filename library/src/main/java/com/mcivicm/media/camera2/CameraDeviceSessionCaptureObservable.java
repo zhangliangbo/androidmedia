@@ -10,6 +10,7 @@ import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.os.Handler;
 import android.support.annotation.NonNull;
+import android.util.Pair;
 import android.view.Surface;
 
 import java.util.ArrayList;
@@ -24,7 +25,7 @@ import io.reactivex.disposables.Disposable;
  * 摄像头捕捉结果
  */
 
-public class CameraDeviceSessionCaptureObservable extends Observable<CameraMetadata> {
+public class CameraDeviceSessionCaptureObservable extends Observable<Pair<Integer, ? extends CameraMetadata>> {
 
     private CameraCaptureSession cameraCaptureSession = null;
     private int captureTemplate = 0;
@@ -43,17 +44,16 @@ public class CameraDeviceSessionCaptureObservable extends Observable<CameraMetad
     }
 
     @Override
-    protected void subscribeActual(Observer<? super CameraMetadata> observer) {
+    protected void subscribeActual(Observer<? super Pair<Integer, ? extends CameraMetadata>> observer) {
         observer.onSubscribe(new CaptureResultAdapter(observer));
     }
 
-
     private class CaptureResultAdapter extends CameraCaptureSession.CaptureCallback implements Disposable {
 
-        private Observer<? super CaptureResult> observer;
+        private Observer<? super Pair<Integer, ? extends CameraMetadata>> observer;
         private AtomicBoolean disposed = new AtomicBoolean(false);
 
-        CaptureResultAdapter(Observer<? super CaptureResult> observer) {
+        CaptureResultAdapter(Observer<? super Pair<Integer, ? extends CameraMetadata>> observer) {
             this.observer = observer;
             if (cameraCaptureSession != null) {
                 switch (captureTemplate) {
@@ -103,7 +103,7 @@ public class CameraDeviceSessionCaptureObservable extends Observable<CameraMetad
         public void onCaptureProgressed(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull CaptureResult partialResult) {
             super.onCaptureProgressed(session, request, partialResult);
             if (!isDisposed()) {
-                observer.onNext(partialResult);
+                observer.onNext(Pair.create(captureTemplate, partialResult));
             }
         }
 
@@ -111,7 +111,7 @@ public class CameraDeviceSessionCaptureObservable extends Observable<CameraMetad
         public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
             super.onCaptureCompleted(session, request, result);
             if (!isDisposed()) {
-                observer.onNext(result);
+                observer.onNext(Pair.create(captureTemplate, result));
             }
         }
 
