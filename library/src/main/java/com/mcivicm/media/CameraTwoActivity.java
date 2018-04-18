@@ -1,7 +1,10 @@
 package com.mcivicm.media;
 
 import android.app.Service;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
@@ -10,6 +13,7 @@ import android.hardware.camera2.CameraMetadata;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Message;
@@ -30,9 +34,15 @@ import com.mcivicm.media.camera2.CameraDeviceAvailabilityObservable;
 import com.mcivicm.media.camera2.CameraDeviceSessionCaptureObservable;
 import com.mcivicm.media.camera2.CameraDeviceSessionStateObservable;
 import com.mcivicm.media.camera2.CameraDeviceStateObservable;
+import com.mcivicm.media.camera2.ToastErrorObserver;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.ToastHelper;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,12 +53,13 @@ import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Function;
+import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
 /**
- * Camera2 Api
+ * Camera2 Api Demo
  */
 
 public class CameraTwoActivity extends AppCompatActivity {
@@ -66,9 +77,9 @@ public class CameraTwoActivity extends AppCompatActivity {
     private ImageReader imageReader;//存放图片数据
     //数据发射器
     private PublishSubject<Object> mainSubject = PublishSubject.create();
-
+    private PublishSubject<ImageReader> ioSubject = PublishSubject.create();
+    //摄像头操作线程
     private Handler nonMainHandler = null;
-    private Disposable disposable;
 
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
@@ -114,7 +125,8 @@ public class CameraTwoActivity extends AppCompatActivity {
         findViewById(R.id.picture_confirm).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startStillCapture(imageReader.getSurface());
+                startPreview(surfaceHolder.getSurface());
+                togglePictureOperation(false, 150);
             }
         });
     }
@@ -122,9 +134,6 @@ public class CameraTwoActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (disposable != null) {
-            disposable.dispose();
-        }
     }
 
 
@@ -204,7 +213,7 @@ public class CameraTwoActivity extends AppCompatActivity {
         }
     }
 
-    //显示和隐藏图片操作
+    //显示和隐藏图片操作栏
     private void togglePictureOperation(boolean show, long duration) {
         if (show) {
             animate(pictureOperationLayout).y(bottomLine.getBottom() - pictureOperationLayout.getHeight()).setDuration(duration).start();
@@ -242,13 +251,17 @@ public class CameraTwoActivity extends AppCompatActivity {
                     .observeOn(AndroidSchedulers.mainThread())
                     .subscribe(new MainThreadObserver());
         }
+        if (!ioSubject.hasObservers()) {
+            ioSubject
+                    .observeOn(Schedulers.io())
+                    .subscribe(new IoThreadObserver());
+        }
     }
 
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            stopRepeating();
-            togglePictureOperation(true, 150);
+            startStillCapture(imageReader.getSurface());
             return true;
         }
 
@@ -273,7 +286,61 @@ public class CameraTwoActivity extends AppCompatActivity {
     }
 
     private enum Notification {
-        HidePictureOperation
+        HidePictureOperation, ShowPictureOperation
+    }
+
+    //Io线程观察者
+    private class IoThreadObserver implements Observer<ImageReader> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(ImageReader imageReader) {
+            Image image = imageReader.acquireNextImage();
+            switch (image.getFormat()) {
+                case ImageFormat.JPEG:
+                    if (image.getPlanes() != null && image.getPlanes().length > 0) {
+                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                        byte[] bytes = new byte[buffer.remaining()];
+                        buffer.get(bytes);
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        Bitmap rotate = rotateBitmap(bitmap, 90);
+                        try {
+                            FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera2_temp_image.jpeg"));
+                            rotate.compress(Bitmap.CompressFormat.JPEG, 100, fos);
+                            fos.close();
+                            rotate.recycle();
+                        } catch (IOException e) {
+                            ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+                        }
+                    }
+                    break;
+            }
+            image.close();//记得close()，为下一次做准备
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+
+        Bitmap rotateBitmap(Bitmap bitmap, int degree) {
+            Matrix matrix = new Matrix();
+            matrix.postRotate(degree);
+            Bitmap rotate = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+            if (!bitmap.isRecycled()) {
+                bitmap.recycle();
+            }
+            return rotate;
+        }
     }
 
     //主线程观察者
@@ -291,6 +358,9 @@ public class CameraTwoActivity extends AppCompatActivity {
                     case HidePictureOperation:
                         startPreview(surfaceHolder.getSurface());
                         togglePictureOperation(false, 150);
+                        break;
+                    case ShowPictureOperation:
+                        togglePictureOperation(true, 150);
                         break;
                 }
             }
@@ -319,13 +389,13 @@ public class CameraTwoActivity extends AppCompatActivity {
             int template = captureRequestPair.first;
             switch (template) {
                 case CameraDevice.TEMPLATE_PREVIEW:
-                    log("preview: " + captureRequestPair.second.getKeys());
+
                     break;
                 case CameraDevice.TEMPLATE_STILL_CAPTURE:
-                    log("still: " + captureRequestPair.second.getKeys());
+
                     break;
                 case CameraDevice.TEMPLATE_RECORD:
-                    log("record: " + captureRequestPair.second.getKeys());
+
                     break;
             }
         }
@@ -345,10 +415,9 @@ public class CameraTwoActivity extends AppCompatActivity {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            mainSubject.onNext(Notification.HidePictureOperation);//通知主线程隐藏操作栏
-            log("new image: " + Thread.currentThread().getName());
-            Image image = reader.acquireNextImage();
-            image.close();
+            stopRepeating();
+            mainSubject.onNext(Notification.ShowPictureOperation);
+            ioSubject.onNext(reader);
         }
 
     }

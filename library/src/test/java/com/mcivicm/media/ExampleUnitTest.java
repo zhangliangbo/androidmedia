@@ -2,6 +2,7 @@ package com.mcivicm.media;
 
 import org.junit.Test;
 
+import java.nio.ByteBuffer;
 import java.util.concurrent.Callable;
 
 import io.reactivex.Observable;
@@ -29,5 +30,21 @@ public class ExampleUnitTest {
                     }
                 })
                 .subscribe();
+    }
+
+    private void logBuffer(ByteBuffer buffer) {
+        System.out.println(buffer.capacity() + "-" + buffer.limit() + "-" + buffer.position());
+    }
+
+    @Test
+    public void byteBuffer() throws Exception {
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        logBuffer(buffer);
+        buffer.put((byte) 1);
+        logBuffer(buffer);
+        buffer.put((byte) 2);
+        logBuffer(buffer);
+        buffer.flip();
+        logBuffer(buffer);
     }
 }
