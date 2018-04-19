@@ -2,7 +2,6 @@ package com.mcivicm.media;
 
 import android.app.Service;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.hardware.camera2.CameraAccessException;
@@ -10,8 +9,14 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
+import android.hardware.camera2.CaptureRequest;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
+import android.media.MediaFormat;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -30,28 +35,31 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
-import com.mcivicm.media.camera2.CameraDeviceAvailabilityObservable;
-import com.mcivicm.media.camera2.CameraDeviceSessionCaptureObservable;
-import com.mcivicm.media.camera2.CameraDeviceSessionStateObservable;
-import com.mcivicm.media.camera2.CameraDeviceStateObservable;
-import com.mcivicm.media.camera2.ToastErrorObserver;
+import com.mcivicm.media.camera2.AvailabilityObservable;
+import com.mcivicm.media.camera2.SessionCaptureObservable;
+import com.mcivicm.media.camera2.SessionStateObservable;
+import com.mcivicm.media.camera2.StateObservable;
 import com.mcivicm.media.helper.CameraOneHelper;
+import com.mcivicm.media.helper.CameraTwoHelper;
+import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
+import com.mcivicm.media.view.VolumeView;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
 import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
@@ -65,21 +73,27 @@ import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 public class CameraTwoActivity extends AppCompatActivity {
 
     private View pictureOperationLayout;
+    private VolumeView recordVolume;
+    private SurfaceView surfaceView;
     private Guideline bottomLine;
     private GestureDetector gestureDetector;
 
     private CameraManager cameraManager = null;
     private CameraDevice cameraDevice;
+    private String cameraId;
     private CameraCaptureSession cameraCaptureSession;
 
     //数据接收器
     private SurfaceHolder surfaceHolder;//存放预览数据
     private ImageReader imageReader;//存放图片数据
+    private MediaCodec mediaCodec;//存放视频的位置
     //数据发射器
     private PublishSubject<Object> mainSubject = PublishSubject.create();
     private PublishSubject<ImageReader> ioSubject = PublishSubject.create();
     //摄像头操作线程
     private Handler nonMainHandler = null;
+    //录制视频数据源
+    private Disposable recordVideoDisposable = null;
 
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
@@ -97,11 +111,13 @@ public class CameraTwoActivity extends AppCompatActivity {
         });
         bottomLine = findViewById(R.id.bottom_line);
         cameraManager = (CameraManager) getSystemService(Service.CAMERA_SERVICE);
-        final SurfaceView surfaceView = findViewById(R.id.surface_view);
+        recordVolume = findViewById(R.id.record_button_layout);
+        surfaceView = findViewById(R.id.surface_view);
         surfaceView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
                 imageReader = newImageReader(surfaceView.getWidth(), surfaceView.getHeight());
+                mediaCodec = newMediaCodec(surfaceView.getWidth(), surfaceView.getHeight());
                 surfaceView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
@@ -136,11 +152,27 @@ public class CameraTwoActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-
     private ImageReader newImageReader(int width, int height) {
         ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
         imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
         return imageReader;
+    }
+
+    private MediaCodec newMediaCodec(int width, int height) {
+        try {
+            MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_MPEG4, width, height);
+            format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+            format.setInteger(MediaFormat.KEY_BIT_RATE, 5 * width * height);
+            format.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
+            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5);
+            format.setInteger(MediaFormat.KEY_ROTATION, 90);
+            format.setInteger(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000 / 30);
+            MediaCodec mediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_MPEG4);
+            mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            return mediaCodec;
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private void stopRepeating() {
@@ -159,58 +191,183 @@ public class CameraTwoActivity extends AppCompatActivity {
                 .flatMap(new Function<Boolean, ObservableSource<String>>() {
                     @Override
                     public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
-                        return new CameraDeviceAvailabilityObservable(cameraManager);
+                        return new AvailabilityObservable(cameraManager);
                     }
                 })
                 .flatMap(new Function<String, ObservableSource<CameraDevice>>() {
                     @Override
                     public ObservableSource<CameraDevice> apply(String s) throws Exception {
-                        return new CameraDeviceStateObservable(cameraManager, s, nonMainHandler);
+                        CameraTwoActivity.this.cameraId = s;
+                        return new StateObservable(cameraManager, s, nonMainHandler);
                     }
                 })
                 .flatMap(new Function<CameraDevice, ObservableSource<CameraCaptureSession>>() {
                     @Override
                     public ObservableSource<CameraCaptureSession> apply(CameraDevice cameraDevice) throws Exception {
                         CameraTwoActivity.this.cameraDevice = cameraDevice;
-                        return new CameraDeviceSessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
+                        return new SessionStateObservable(cameraDevice, toList(mediaCodec.createInputSurface()), nonMainHandler);
+//                        return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
                     }
                 });
     }
 
     //开始预览
     private void startPreview(final Surface... surfaces) {
+        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
+            @Override
+            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                if (surfaces != null) {
+                    for (Surface surface : surfaces) {
+                        builder.addTarget(surface);
+                    }
+                }
+            }
+        };
         if (this.cameraCaptureSession == null) {
             session()
                     .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                         @Override
                         public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
                             CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession;
-                            return new CameraDeviceSessionCaptureObservable(cameraCaptureSession, CameraDevice.TEMPLATE_PREVIEW, toList(surfaces), nonMainHandler);
+                            return new SessionCaptureObservable(
+                                    cameraCaptureSession,
+                                    CameraDevice.TEMPLATE_PREVIEW,
+                                    initializer,
+                                    nonMainHandler);
                         }
                     })
                     .subscribe(new CaptureObserver());
         } else {
-            new CameraDeviceSessionCaptureObservable(cameraCaptureSession, CameraDevice.TEMPLATE_PREVIEW, toList(surfaces), nonMainHandler)
+            new SessionCaptureObservable(
+                    cameraCaptureSession,
+                    CameraDevice.TEMPLATE_PREVIEW,
+                    initializer,
+                    nonMainHandler)
                     .subscribe(new CaptureObserver());
         }
     }
 
     //开始采集图片
     private void startStillCapture(final Surface... surfaces) {
+        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
+            @Override
+            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                builder.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
+                //图片的旋转角
+                try {
+                    builder.set(CaptureRequest.JPEG_ORIENTATION, CameraTwoHelper.getPictureRotation(cameraManager, cameraId, 0));
+                } catch (CameraAccessException e) {
+                    //ignore
+                }
+                if (surfaces != null) {
+                    for (Surface surface : surfaces) {
+                        builder.addTarget(surface);
+                    }
+                }
+            }
+        };
+        if (this.cameraCaptureSession == null) {
+            session()
+                    .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
+                        @Override
+                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(final CameraCaptureSession cameraCaptureSession) throws Exception {
+                            CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession;
+                            return new SessionCaptureObservable(
+                                    cameraCaptureSession,
+                                    CameraDevice.TEMPLATE_STILL_CAPTURE,
+                                    initializer,
+                                    nonMainHandler);
+                        }
+                    })
+                    .subscribe(new CaptureObserver());
+        } else {
+            new SessionCaptureObservable(
+                    cameraCaptureSession,
+                    CameraDevice.TEMPLATE_STILL_CAPTURE,
+                    initializer,
+                    nonMainHandler)
+                    .subscribe(new CaptureObserver());
+        }
+    }
+
+    //开始录制视频
+    private void startRecord(final Surface... surfaces) {
+        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
+            @Override
+            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                if (surfaces != null) {
+                    for (Surface surface : surfaces) {
+                        builder.addTarget(surface);
+                    }
+                }
+            }
+        };
         if (this.cameraCaptureSession == null) {
             session()
                     .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                         @Override
                         public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
-                            CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession;
-                            return new CameraDeviceSessionCaptureObservable(cameraCaptureSession, CameraDevice.TEMPLATE_STILL_CAPTURE, toList(surfaces), nonMainHandler);
+                            return new SessionCaptureObservable(
+                                    cameraCaptureSession,
+                                    CameraDevice.TEMPLATE_RECORD,
+                                    initializer,
+                                    nonMainHandler);
                         }
                     })
                     .subscribe(new CaptureObserver());
         } else {
-            new CameraDeviceSessionCaptureObservable(cameraCaptureSession, CameraDevice.TEMPLATE_STILL_CAPTURE, toList(surfaces), nonMainHandler)
+            new SessionCaptureObservable(
+                    cameraCaptureSession,
+                    CameraDevice.TEMPLATE_RECORD,
+                    initializer,
+                    nonMainHandler)
                     .subscribe(new CaptureObserver());
         }
+    }
+
+
+    private void recordVideo() {
+        Observable.intervalRange(0, 10020, 0, 1, TimeUnit.MILLISECONDS)
+                .observeOn(AndroidSchedulers.mainThread())
+                .doOnDispose(new Action() {
+                    @Override
+                    public void run() throws Exception {
+                        recordVolume.hideEdge();
+                        recordVolume.setOrientation(0);
+                        startPreview(surfaceHolder.getSurface());
+                        ToastHelper.toast(CameraTwoActivity.this, "录制成功");
+                    }
+                })
+                .subscribe(new Observer<Long>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+                        recordVideoDisposable = d;
+                        recordVolume.showEdge();
+                        recordVolume.setOrientation(0);
+                        startRecord(surfaceHolder.getSurface());
+                    }
+
+                    @Override
+                    public void onNext(Long aLong) {
+                        recordVolume.setOrientation((int) (360 * aLong.floatValue() / 10000));
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        recordVolume.hideEdge();
+                        recordVolume.setOrientation(0);
+                        startPreview(surfaceHolder.getSurface());
+                        ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+                    }
+
+                    @Override
+                    public void onComplete() {
+                        recordVolume.hideEdge();
+                        recordVolume.setOrientation(0);
+                        startPreview(surfaceHolder.getSurface());
+                        ToastHelper.toast(CameraTwoActivity.this, "录制成功");
+                    }
+                });
     }
 
     //显示和隐藏图片操作栏
@@ -267,7 +424,7 @@ public class CameraTwoActivity extends AppCompatActivity {
 
         @Override
         public void onLongPress(MotionEvent e) {
-            super.onLongPress(e);
+            recordVideo();
         }
     }
 
@@ -279,6 +436,9 @@ public class CameraTwoActivity extends AppCompatActivity {
             gestureDetector.onTouchEvent(event);
             switch (event.getAction()) {
                 case MotionEvent.ACTION_UP:
+                    if (recordVideoDisposable != null && !recordVideoDisposable.isDisposed()) {
+                        recordVideoDisposable.dispose();
+                    }
                     break;
             }
             return true;
@@ -304,15 +464,10 @@ public class CameraTwoActivity extends AppCompatActivity {
                 case ImageFormat.JPEG:
                     if (image.getPlanes() != null && image.getPlanes().length > 0) {
                         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        byte[] bytes = new byte[buffer.remaining()];
-                        buffer.get(bytes);
-                        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-                        Bitmap rotate = rotateBitmap(bitmap, 90);
                         try {
                             FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera2_temp_image.jpeg"));
-                            rotate.compress(Bitmap.CompressFormat.JPEG, 100, fos);
+                            fos.getChannel().write(buffer);
                             fos.close();
-                            rotate.recycle();
                         } catch (IOException e) {
                             ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
                         }
@@ -389,13 +544,13 @@ public class CameraTwoActivity extends AppCompatActivity {
             int template = captureRequestPair.first;
             switch (template) {
                 case CameraDevice.TEMPLATE_PREVIEW:
-
+                    log("previewing.");
                     break;
                 case CameraDevice.TEMPLATE_STILL_CAPTURE:
-
+                    log("still.");
                     break;
                 case CameraDevice.TEMPLATE_RECORD:
-
+                    log("recording.");
                     break;
             }
         }
@@ -427,7 +582,7 @@ public class CameraTwoActivity extends AppCompatActivity {
         @Override
         public void surfaceCreated(final SurfaceHolder holder) {
             surfaceHolder = holder;
-            startPreview(holder.getSurface());
+            startPreview(mediaCodec.createInputSurface());
         }
 
         @Override

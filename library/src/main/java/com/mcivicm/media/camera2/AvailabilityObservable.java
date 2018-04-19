@@ -13,11 +13,11 @@ import io.reactivex.disposables.Disposable;
  * 摄像头的可用性
  */
 
-public class CameraDeviceAvailabilityObservable extends Observable<String> {
+public class AvailabilityObservable extends Observable<String> {
 
     private CameraManager cameraManager = null;
 
-    public CameraDeviceAvailabilityObservable(CameraManager cameraManager) {
+    public AvailabilityObservable(CameraManager cameraManager) {
         this.cameraManager = cameraManager;
     }
 

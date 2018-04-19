@@ -1,5 +1,6 @@
 package com.mcivicm.media.camera2;
 
+import android.annotation.SuppressLint;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
@@ -11,11 +12,15 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.util.Pair;
+import android.util.Size;
 import android.view.Surface;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.zip.CRC32;
 
 import io.reactivex.Observable;
 import io.reactivex.Observer;
@@ -25,27 +30,32 @@ import io.reactivex.disposables.Disposable;
  * 摄像头捕捉结果
  */
 
-public class CameraDeviceSessionCaptureObservable extends Observable<Pair<Integer, ? extends CameraMetadata>> {
+public class SessionCaptureObservable extends Observable<Pair<Integer, ? extends CameraMetadata>> {
 
     private CameraCaptureSession cameraCaptureSession = null;
     private int captureTemplate = 0;
-    private List<Surface> surfaceList;
+    private RequestBuilderInitializer initializer;
     private Handler handler = null;
 
-    public CameraDeviceSessionCaptureObservable(CameraCaptureSession cameraCaptureSession, int captureTemplate, List<Surface> surfaceList, Handler handler) {
+    public SessionCaptureObservable(CameraCaptureSession cameraCaptureSession, int captureTemplate, RequestBuilderInitializer initializer, Handler handler) {
         this.cameraCaptureSession = cameraCaptureSession;
         this.captureTemplate = captureTemplate;
-        if (surfaceList == null) {
-            this.surfaceList = new ArrayList<>();
-        } else {
-            this.surfaceList = surfaceList;
-        }
+
+        this.initializer = initializer;
         this.handler = handler;
     }
 
     @Override
     protected void subscribeActual(Observer<? super Pair<Integer, ? extends CameraMetadata>> observer) {
         observer.onSubscribe(new CaptureResultAdapter(observer));
+    }
+
+
+    /**
+     * 初始化请求体，主要是给一些关键参数赋值
+     */
+    public interface RequestBuilderInitializer {
+        void onCreateRequestBuilder(CaptureRequest.Builder builder);
     }
 
     private class CaptureResultAdapter extends CameraCaptureSession.CaptureCallback implements Disposable {
@@ -56,40 +66,32 @@ public class CameraDeviceSessionCaptureObservable extends Observable<Pair<Intege
         CaptureResultAdapter(Observer<? super Pair<Integer, ? extends CameraMetadata>> observer) {
             this.observer = observer;
             if (cameraCaptureSession != null) {
-                switch (captureTemplate) {
-                    case CameraDevice.TEMPLATE_PREVIEW:
-                        try {
+                try {
+                    switch (captureTemplate) {
+                        case CameraDevice.TEMPLATE_PREVIEW:
                             CaptureRequest.Builder preview = cameraCaptureSession.getDevice().createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                            for (Surface surface : surfaceList) {
-                                preview.addTarget(surface);
+                            if (initializer != null) {
+                                initializer.onCreateRequestBuilder(preview);
                             }
-                            cameraCaptureSession.setRepeatingRequest(preview.build(), this, handler);
-                        } catch (Exception e) {
-                            observer.onError(e);
-                        }
-                        break;
-                    case CameraDevice.TEMPLATE_STILL_CAPTURE:
-                        try {
+                            cameraCaptureSession.setRepeatingRequest(preview.build(), this, handler);//需要重复请求
+                            break;
+                        case CameraDevice.TEMPLATE_STILL_CAPTURE:
                             CaptureRequest.Builder still = cameraCaptureSession.getDevice().createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                            for (Surface surface : surfaceList) {
-                                still.addTarget(surface);
+                            if (initializer != null) {
+                                initializer.onCreateRequestBuilder(still);
                             }
                             cameraCaptureSession.capture(still.build(), this, handler);
-                        } catch (Exception e) {
-                            observer.onError(e);
-                        }
-                        break;
-                    case CameraDevice.TEMPLATE_RECORD:
-                        try {
+                            break;
+                        case CameraDevice.TEMPLATE_RECORD:
                             CaptureRequest.Builder record = cameraCaptureSession.getDevice().createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-                            for (Surface surface : surfaceList) {
-                                record.addTarget(surface);
+                            if (initializer != null) {
+                                initializer.onCreateRequestBuilder(record);
                             }
-                            cameraCaptureSession.setRepeatingRequest(record.build(), this, handler);
-                        } catch (Exception e) {
-                            observer.onError(e);
-                        }
-                        break;
+                            cameraCaptureSession.setRepeatingRequest(record.build(), this, handler);//需要重复请求
+                            break;
+                    }
+                } catch (Exception e) {
+                    observer.onError(e);
                 }
             }
         }

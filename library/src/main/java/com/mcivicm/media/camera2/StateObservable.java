@@ -17,14 +17,14 @@ import io.reactivex.disposables.Disposable;
  * 摄像头状态
  */
 
-public class CameraDeviceStateObservable extends Observable<CameraDevice> {
+public class StateObservable extends Observable<CameraDevice> {
 
     private CameraManager cameraManager = null;
     private String cameraId = null;
     private Handler handler = null;
 
 
-    public CameraDeviceStateObservable(CameraManager cameraManager, String cameraId, Handler handler) {
+    public StateObservable(CameraManager cameraManager, String cameraId, Handler handler) {
         this.cameraManager = cameraManager;
         this.cameraId = cameraId;
         this.handler = handler;

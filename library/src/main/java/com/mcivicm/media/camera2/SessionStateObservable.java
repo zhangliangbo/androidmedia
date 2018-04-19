@@ -19,13 +19,13 @@ import io.reactivex.disposables.Disposable;
  * 对话的状态
  */
 
-public class CameraDeviceSessionStateObservable extends Observable<CameraCaptureSession> {
+public class SessionStateObservable extends Observable<CameraCaptureSession> {
 
     private CameraDevice cameraDevice = null;
     private List<Surface> surfaceList = null;
     private Handler handler = null;
 
-    public CameraDeviceSessionStateObservable(CameraDevice cameraDevice, List<Surface> surfaceList, Handler handler) {
+    public SessionStateObservable(CameraDevice cameraDevice, List<Surface> surfaceList, Handler handler) {
         this.cameraDevice = cameraDevice;
         this.surfaceList = surfaceList;
         this.handler = handler;
