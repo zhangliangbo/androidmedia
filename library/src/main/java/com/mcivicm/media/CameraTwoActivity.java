@@ -205,8 +205,7 @@ public class CameraTwoActivity extends AppCompatActivity {
                     @Override
                     public ObservableSource<CameraCaptureSession> apply(CameraDevice cameraDevice) throws Exception {
                         CameraTwoActivity.this.cameraDevice = cameraDevice;
-                        return new SessionStateObservable(cameraDevice, toList(mediaCodec.createInputSurface()), nonMainHandler);
-//                        return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
+                        return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
                     }
                 });
     }
