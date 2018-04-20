@@ -1,6 +1,5 @@
 package com.mcivicm.media.camera2;
 
-import android.annotation.SuppressLint;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
@@ -12,15 +11,9 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.util.Pair;
-import android.util.Size;
 import android.view.Surface;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.zip.CRC32;
 
 import io.reactivex.Observable;
 import io.reactivex.Observer;

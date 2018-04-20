@@ -3,6 +3,8 @@ package com.mcivicm.media.camera2;
 import android.hardware.camera2.CameraManager;
 import android.support.annotation.NonNull;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.reactivex.Observable;
@@ -50,6 +52,7 @@ public class AvailabilityObservable extends Observable<String> {
         @Override
         public void onCameraUnavailable(@NonNull String cameraId) {
             super.onCameraUnavailable(cameraId);
+            //ignore in this context.
         }
 
         @Override

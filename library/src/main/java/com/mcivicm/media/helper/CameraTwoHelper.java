@@ -61,7 +61,7 @@ public class CameraTwoHelper {
         //设置码率
         mediaRecorder.setVideoEncodingBitRate(5 * width * height);
         //设置视频大小
-        mediaRecorder.setVideoSize(width, height);
+//        mediaRecorder.setVideoSize(width, height);
         //设置记录会话的最大持续时间
         mediaRecorder.setMaxDuration(10 * 1000);
         //设置输出文件
