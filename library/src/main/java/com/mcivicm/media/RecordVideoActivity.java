@@ -284,7 +284,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface()));
+                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
                     }
                 })
                 .subscribe(new io.reactivex.Observer<Long>() {
@@ -326,7 +326,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface()));
+                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
                     }
 
                     @Override
@@ -342,7 +342,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface()));
+                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
                     }
                 });
     }
@@ -352,7 +352,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
-            startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface()));
+            startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
         }
 
         @Override
