@@ -43,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
+import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
@@ -67,6 +68,8 @@ public class RecordVideoActivity extends AppCompatActivity {
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
+    private int captureTemplate = CameraDevice.TEMPLATE_PREVIEW;
+    private Capture capture = null;//由于关闭会话是异步的，故每次开始会话操作（预览，拍照，录制）时先把Surface保存起来再操作
 
     private Disposable recordDisposable;
     private boolean resetQ = false;
@@ -190,8 +193,15 @@ public class RecordVideoActivity extends AppCompatActivity {
                                     RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
                                     return Observable.just(cameraCaptureSessionSessionStatePair.first);
                                 case ConfiguredFailed:
+                                    RecordVideoActivity.this.cameraCaptureSession = null;
+                                    return Observable.empty();
                                 case Close:
                                     RecordVideoActivity.this.cameraCaptureSession = null;
+                                    //看看有没有需要捕获操作
+                                    if (capture != null) {
+                                        newCapture(capture.template, capture.surfaceList);
+                                        capture = null;
+                                    }
                                     return Observable.empty();
                                 default://其他事件过滤
                                     return Observable.empty();
@@ -209,22 +219,28 @@ public class RecordVideoActivity extends AppCompatActivity {
         nonMainHandler = new Handler(handlerThread.getLooper());
     }
 
-    private void startPreview(List<Surface> session, final List<Surface> preview) {
+    private void prepareCapture(int captureTemplate, List<Surface> surfaceList) {
         if (cameraCaptureSession != null) {
-            //重置会话
+            capture = new Capture(captureTemplate, surfaceList);//先把数据准备好，等待上一个会话关闭，然后开始下一个会话
             cameraCaptureSession.close();
+        } else {
+            newCapture(captureTemplate, surfaceList);//如果没有上一个会话，则直接开始一个新的会话
         }
-        cameraCaptureSession(session)
+    }
+
+
+    private void newCapture(final int captureTemplate, final List<Surface> surfaceList) {
+        cameraCaptureSession(surfaceList)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
                     public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
                         return new SessionCaptureObservable(
                                 cameraCaptureSession,
-                                CameraDevice.TEMPLATE_PREVIEW,
+                                captureTemplate,
                                 new SessionCaptureObservable.RequestBuilderInitializer() {
                                     @Override
                                     public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                                        for (Surface surface : preview) {
+                                        for (Surface surface : surfaceList) {
                                             builder.addTarget(surface);
                                         }
                                     }
@@ -232,7 +248,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                                 nonMainHandler);
                     }
                 })
-                .subscribe(new io.reactivex.Observer<Pair<Integer, ? extends CameraMetadata>>() {
+                .subscribe(new Observer<Pair<Integer, ? extends CameraMetadata>>() {
                     @Override
                     public void onSubscribe(Disposable d) {
 
@@ -241,47 +257,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                     @Override
                     public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
                         Log.d("zhang", "previewing.");
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
-    }
-
-    private void startRecord(List<Surface> session, final List<Surface> record) {
-        cameraCaptureSession(session)
-                .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
-                    @Override
-                    public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
-                        return new SessionCaptureObservable(
-                                cameraCaptureSession,
-                                CameraDevice.TEMPLATE_RECORD,
-                                new SessionCaptureObservable.RequestBuilderInitializer() {
-                                    @Override
-                                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                                        for (Surface surface : record) {
-                                            builder.addTarget(surface);
-                                        }
-                                    }
-                                }, nonMainHandler);
-                    }
-                })
-                .subscribe(new io.reactivex.Observer<Pair<Integer, ? extends CameraMetadata>>() {
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
-                        Log.d("zhang", "recording.");
                     }
 
                     @Override
@@ -314,7 +289,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
+                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
                     }
                 })
                 .subscribe(new io.reactivex.Observer<Long>() {
@@ -333,9 +308,8 @@ public class RecordVideoActivity extends AppCompatActivity {
                                 e.printStackTrace();
                             }
                         }
-                        startRecord(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
+                        prepareCapture(CameraDevice.TEMPLATE_RECORD, list(surfaceHolder.getSurface(), mediaRecordSurface));
                         mediaRecorder.start();
-
                     }
 
                     @Override
@@ -356,7 +330,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
+                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
                     }
 
                     @Override
@@ -372,9 +346,21 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(list(surfaceHolder.getSurface()), list(surfaceHolder.getSurface()));
+                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
                     }
                 });
+    }
+
+    //一次捕获需要的参数
+    private class Capture {
+
+        int template;
+        List<Surface> surfaceList = new ArrayList<>();
+
+        Capture(int template, List<Surface> surfaceList) {
+            this.template = template;
+            this.surfaceList = surfaceList;
+        }
     }
 
     private class SurfaceCallback implements SurfaceHolder.Callback {
@@ -382,7 +368,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
-            startPreview(list(surfaceHolder.getSurface()), list(surfaceHolder.getSurface()));
+            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
         }
 
         @Override
@@ -422,7 +408,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
+            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
             return true;
         }
 
