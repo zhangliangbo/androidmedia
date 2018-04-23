@@ -6,6 +6,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.os.Handler;
 import android.support.annotation.NonNull;
+import android.util.Pair;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -17,7 +18,7 @@ import io.reactivex.disposables.Disposable;
  * 摄像头状态
  */
 
-public class StateObservable extends Observable<CameraDevice> {
+public class StateObservable extends Observable<Pair<CameraDevice, State>> {
 
     private CameraManager cameraManager = null;
     private String cameraId = null;
@@ -31,18 +32,18 @@ public class StateObservable extends Observable<CameraDevice> {
     }
 
     @Override
-    protected void subscribeActual(Observer<? super CameraDevice> observer) {
+    protected void subscribeActual(Observer<? super Pair<CameraDevice, State>> observer) {
         observer.onSubscribe(new StateAdapter(observer));
     }
 
     private class StateAdapter extends CameraDevice.StateCallback implements Disposable {
 
-        Observer<? super CameraDevice> observer;
+        Observer<? super Pair<CameraDevice, State>> observer;
 
         AtomicBoolean isDisposed = new AtomicBoolean(false);
 
         @SuppressLint("MissingPermission")
-        StateAdapter(Observer<? super CameraDevice> observer) {
+        StateAdapter(Observer<? super Pair<CameraDevice, State>> observer) {
             this.observer = observer;
             if (cameraManager != null) {
                 try {
@@ -56,21 +57,22 @@ public class StateObservable extends Observable<CameraDevice> {
         @Override
         public void onOpened(@NonNull CameraDevice camera) {
             if (!isDisposed()) {
-                observer.onNext(camera);
+                observer.onNext(Pair.create(camera, State.Open));
             }
         }
 
         @Override
         public void onDisconnected(@NonNull CameraDevice camera) {
-            //失去连接后关闭摄像头，如需使用重新开启
-            camera.close();
+            if (!isDisposed()) {
+                observer.onNext(Pair.create(camera, State.Disconnect));
+            }
         }
 
         @Override
         public void onClosed(@NonNull CameraDevice camera) {
             super.onClosed(camera);
             if (!isDisposed()) {
-                observer.onComplete();//相机使用结束
+                observer.onNext(Pair.create(camera, State.Close));
             }
         }
 

@@ -2,6 +2,7 @@ package com.mcivicm.media;
 
 import android.app.Service;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
@@ -10,7 +11,6 @@ import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.AppCompatTextView;
@@ -24,9 +24,10 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
-import com.mcivicm.media.camera2.AvailabilityObservable;
 import com.mcivicm.media.camera2.SessionCaptureObservable;
+import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
+import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
@@ -34,17 +35,17 @@ import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.view.VolumeView;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
-import io.reactivex.Observer;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
-import io.reactivex.functions.Consumer;
 import io.reactivex.functions.Function;
 
 /**
@@ -62,6 +63,8 @@ public class RecordVideoActivity extends AppCompatActivity {
     final MediaRecorder mediaRecorder = new MediaRecorder();
 
     private Handler nonMainHandler;
+    private CameraManager cameraManager = null;
+    private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
 
@@ -72,7 +75,6 @@ public class RecordVideoActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initHandler();
-        initCameraDevice();
         setContentView(R.layout.activity_record_video);
         surfaceView = findViewById(R.id.surface_view);
         surfaceView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -111,31 +113,94 @@ public class RecordVideoActivity extends AppCompatActivity {
     }
 
     private CameraManager manager() {
-        return (CameraManager) getSystemService(Service.CAMERA_SERVICE);
+        if (cameraManager == null) {
+            cameraManager = (CameraManager) getSystemService(Service.CAMERA_SERVICE);
+        }
+        return cameraManager;
     }
 
-    private Observable<String> availability() {
-        return CameraOneHelper.cameraPermission(RecordVideoActivity.this)
-                .flatMap(new Function<Boolean, ObservableSource<String>>() {
-                    @Override
-                    public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
-                        if (aBoolean) {
-                            return new AvailabilityObservable(manager());
-                        } else {
-                            return Observable.empty();
-                        }
-                    }
-                });
-    }
-
+    //打开摄像头
     private Observable<CameraDevice> cameraDevice() {
-        return availability()
-                .flatMap(new Function<String, ObservableSource<CameraDevice>>() {
-                    @Override
-                    public ObservableSource<CameraDevice> apply(String s) throws Exception {
-                        return new StateObservable(manager(), s, nonMainHandler);
-                    }
-                });
+        if (cameraDevice == null) {
+            return CameraOneHelper.cameraPermission(RecordVideoActivity.this)//申请摄像头权限
+                    .flatMap(new Function<Boolean, ObservableSource<String>>() {
+                        @Override
+                        public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
+                            if (aBoolean) {
+                                String[] cameraIdList = manager().getCameraIdList();
+                                for (String id : cameraIdList) {
+                                    CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                                    int facing = cc.get(CameraCharacteristics.LENS_FACING);
+                                    if (facing == cameraFacing) {
+                                        return Observable.just(id);
+                                    }
+                                }
+                                return Observable.error(new Exception(cameraFacing == CameraCharacteristics.LENS_FACING_BACK ? "未找到后置摄像头" : "未找到前置摄像头"));
+                            } else {
+                                return Observable.empty();
+                            }
+                        }
+                    })
+                    .flatMap(new Function<String, ObservableSource<Pair<CameraDevice, State>>>() {
+                        @Override
+                        public ObservableSource<Pair<CameraDevice, State>> apply(String id) throws Exception {
+                            return new StateObservable(manager(), id, nonMainHandler);//一旦打开摄像头，马上会收到摄像头被占用的通知
+                        }
+                    })
+                    .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<CameraDevice>>() {
+                        @Override
+                        public ObservableSource<CameraDevice> apply(Pair<CameraDevice, State> cameraDeviceStatePair) throws Exception {
+                            switch (cameraDeviceStatePair.second) {
+                                case Open:
+                                    RecordVideoActivity.this.cameraDevice = cameraDeviceStatePair.first;//给类范围变量赋个值
+                                    return Observable.just(cameraDeviceStatePair.first);
+                                default:
+                                    RecordVideoActivity.this.cameraDevice = null;
+                                    return Observable.empty();//通道关闭或失联，仅赋值，不传给下游
+                            }
+                        }
+                    });
+        } else {
+            return Observable.just(cameraDevice);
+        }
+    }
+
+    private List<Surface> list(Surface... surfaces) {
+        List<Surface> list = new ArrayList<>();
+        Collections.addAll(list, surfaces);
+        return list;
+    }
+
+    //打开摄像头会话
+    private Observable<CameraCaptureSession> cameraCaptureSession(final List<Surface> list) {
+        if (cameraCaptureSession == null) {
+            return cameraDevice()
+                    .flatMap(new Function<CameraDevice, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
+                        @Override
+                        public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(CameraDevice cameraDevice) throws Exception {
+                            return new SessionStateObservable(cameraDevice, list, nonMainHandler);
+                        }
+                    })
+                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<CameraCaptureSession>>() {
+                        @Override
+                        public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
+                            log(cameraCaptureSessionSessionStatePair.second.name());
+                            switch (cameraCaptureSessionSessionStatePair.second) {
+                                case Configured:
+                                    RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
+                                    return Observable.just(cameraCaptureSessionSessionStatePair.first);
+                                case ConfiguredFailed:
+                                case Close:
+                                    RecordVideoActivity.this.cameraCaptureSession = null;
+                                    return Observable.empty();
+                                default://其他事件过滤
+                                    return Observable.empty();
+                            }
+                        }
+                    });
+        } else {
+            return Observable.just(cameraCaptureSession);
+        }
     }
 
     private void initHandler() {
@@ -144,46 +209,11 @@ public class RecordVideoActivity extends AppCompatActivity {
         nonMainHandler = new Handler(handlerThread.getLooper());
     }
 
-    private void initCameraDevice() {
-        cameraDevice().subscribe(new Observer<CameraDevice>() {
-            @Override
-            public void onSubscribe(Disposable d) {
-
-            }
-
-            @Override
-            public void onNext(CameraDevice cameraDevice) {
-                RecordVideoActivity.this.cameraDevice = cameraDevice;
-            }
-
-            @Override
-            public void onError(Throwable e) {
-
-            }
-
-            @Override
-            public void onComplete() {
-
-            }
-        });
-    }
-
-    private Observable<CameraCaptureSession> cameraCaptureSession(List<Surface> list) {
-        if (cameraCaptureSession == null) {
-            return new SessionStateObservable(cameraDevice, list, nonMainHandler)
-                    .doOnNext(new Consumer<CameraCaptureSession>() {
-                        @Override
-                        public void accept(CameraCaptureSession cameraCaptureSession) throws Exception {
-                            RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSession;
-                        }
-                    });
-        } else {
-            return Observable.just(cameraCaptureSession);
-        }
-    }
-
-
     private void startPreview(List<Surface> session, final List<Surface> preview) {
+        if (cameraCaptureSession != null) {
+            //重置会话
+            cameraCaptureSession.close();
+        }
         cameraCaptureSession(session)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
@@ -284,7 +314,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
+                        startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
                     }
                 })
                 .subscribe(new io.reactivex.Observer<Long>() {
@@ -326,7 +356,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
+                        startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
                     }
 
                     @Override
@@ -342,7 +372,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                         }
                         //继续预览
-                        startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
+                        startPreview(list(surfaceHolder.getSurface()), list(surfaceHolder.getSurface()));
                     }
                 });
     }
@@ -352,7 +382,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
-            startPreview(Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface), Arrays.asList(surfaceHolder.getSurface(), mediaRecordSurface));
+            startPreview(list(surfaceHolder.getSurface()), list(surfaceHolder.getSurface()));
         }
 
         @Override
@@ -392,44 +422,13 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            manager().registerAvailabilityCallback(new CameraManager.AvailabilityCallback() {
-                @Override
-                public void onCameraAvailable(@NonNull String cameraId) {
-                    super.onCameraAvailable(cameraId);
-                    Log.d("zhang", "available 2: " + cameraId);
-                }
-
-                @Override
-                public void onCameraUnavailable(@NonNull String cameraId) {
-                    super.onCameraUnavailable(cameraId);
-                }
-            }, nonMainHandler);
+            startPreview(list(surfaceHolder.getSurface()),list(surfaceHolder.getSurface()));
             return true;
         }
 
         @Override
         public void onLongPress(MotionEvent e) {
             recordVideo();
-        }
-    }
-
-    private class State extends CameraDevice.StateCallback {
-
-        CameraDevice cameraDevice = null;
-
-        @Override
-        public void onOpened(@NonNull CameraDevice camera) {
-            cameraDevice = camera;
-        }
-
-        @Override
-        public void onDisconnected(@NonNull CameraDevice camera) {
-            cameraDevice = camera;
-        }
-
-        @Override
-        public void onError(@NonNull CameraDevice camera, int error) {
-            cameraDevice = camera;
         }
     }
 }

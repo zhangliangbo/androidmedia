@@ -14,9 +14,7 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.media.MediaFormat;
-import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -37,11 +35,12 @@ import android.view.ViewTreeObserver;
 
 import com.mcivicm.media.camera2.AvailabilityObservable;
 import com.mcivicm.media.camera2.SessionCaptureObservable;
+import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
+import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
-import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.view.VolumeView;
 
@@ -186,26 +185,35 @@ public class CameraTwoActivity extends AppCompatActivity {
     }
 
     //打开摄像头会话
-    private Observable<CameraCaptureSession> session() {
+    private Observable<Pair<CameraCaptureSession, SessionState>> session() {
         return CameraOneHelper.cameraPermission(CameraTwoActivity.this)
-                .flatMap(new Function<Boolean, ObservableSource<String>>() {
+                .flatMap(new Function<Boolean, ObservableSource<Pair<String, Boolean>>>() {
                     @Override
-                    public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
+                    public ObservableSource<Pair<String, Boolean>> apply(Boolean aBoolean) throws Exception {
                         return new AvailabilityObservable(cameraManager);
                     }
                 })
-                .flatMap(new Function<String, ObservableSource<CameraDevice>>() {
+                .flatMap(new Function<Pair<String, Boolean>, ObservableSource<Pair<CameraDevice, State>>>() {
                     @Override
-                    public ObservableSource<CameraDevice> apply(String s) throws Exception {
-                        CameraTwoActivity.this.cameraId = s;
-                        return new StateObservable(cameraManager, s, nonMainHandler);
+                    public ObservableSource<Pair<CameraDevice, State>> apply(Pair<String, Boolean> availability) throws Exception {
+                        if (availability.second) {
+                            CameraTwoActivity.this.cameraId = availability.first;
+                            return new StateObservable(cameraManager, availability.first, nonMainHandler);
+                        } else {
+                            return Observable.empty();
+                        }
                     }
                 })
-                .flatMap(new Function<CameraDevice, ObservableSource<CameraCaptureSession>>() {
+                .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
                     @Override
-                    public ObservableSource<CameraCaptureSession> apply(CameraDevice cameraDevice) throws Exception {
-                        CameraTwoActivity.this.cameraDevice = cameraDevice;
-                        return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
+                    public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(Pair<CameraDevice, State> state) throws Exception {
+                        switch (state.second) {
+                            case Open:
+                                CameraTwoActivity.this.cameraDevice = state.first;
+                                return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
+                            default:
+                                return Observable.empty();
+                        }
                     }
                 });
     }
@@ -224,15 +232,20 @@ public class CameraTwoActivity extends AppCompatActivity {
         };
         if (this.cameraCaptureSession == null) {
             session()
-                    .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
+                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                         @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
-                            CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession;
-                            return new SessionCaptureObservable(
-                                    cameraCaptureSession,
-                                    CameraDevice.TEMPLATE_PREVIEW,
-                                    initializer,
-                                    nonMainHandler);
+                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
+                            switch (cameraCaptureSession.second) {
+                                case Configured:
+                                    CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession.first;
+                                    return new SessionCaptureObservable(
+                                            cameraCaptureSession.first,
+                                            CameraDevice.TEMPLATE_PREVIEW,
+                                            initializer,
+                                            nonMainHandler);
+                                default:
+                                    return Observable.empty();
+                            }
                         }
                     })
                     .subscribe(new CaptureObserver());
@@ -267,15 +280,21 @@ public class CameraTwoActivity extends AppCompatActivity {
         };
         if (this.cameraCaptureSession == null) {
             session()
-                    .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
+                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                         @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(final CameraCaptureSession cameraCaptureSession) throws Exception {
-                            CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession;
-                            return new SessionCaptureObservable(
-                                    cameraCaptureSession,
-                                    CameraDevice.TEMPLATE_STILL_CAPTURE,
-                                    initializer,
-                                    nonMainHandler);
+                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(final Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
+                            switch (cameraCaptureSession.second) {
+                                case Configured:
+                                    CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession.first;
+                                    return new SessionCaptureObservable(
+                                            cameraCaptureSession.first,
+                                            CameraDevice.TEMPLATE_STILL_CAPTURE,
+                                            initializer,
+                                            nonMainHandler);
+                                default:
+                                    return Observable.empty();
+                            }
+
                         }
                     })
                     .subscribe(new CaptureObserver());
@@ -303,14 +322,20 @@ public class CameraTwoActivity extends AppCompatActivity {
         };
         if (this.cameraCaptureSession == null) {
             session()
-                    .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
+                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                         @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
-                            return new SessionCaptureObservable(
-                                    cameraCaptureSession,
-                                    CameraDevice.TEMPLATE_RECORD,
-                                    initializer,
-                                    nonMainHandler);
+                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
+                            switch (cameraCaptureSession.second) {
+                                case Configured:
+                                    return new SessionCaptureObservable(
+                                            cameraCaptureSession.first,
+                                            CameraDevice.TEMPLATE_RECORD,
+                                            initializer,
+                                            nonMainHandler);
+                                default:
+                                    return Observable.empty();
+                            }
+
                         }
                     })
                     .subscribe(new CaptureObserver());
