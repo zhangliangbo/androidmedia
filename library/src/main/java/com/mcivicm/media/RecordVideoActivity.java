@@ -68,7 +68,6 @@ public class RecordVideoActivity extends AppCompatActivity {
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
-    private int captureTemplate = CameraDevice.TEMPLATE_PREVIEW;
     private Capture capture = null;//由于关闭会话是异步的，故每次开始会话操作（预览，拍照，录制）时先把Surface保存起来再操作
 
     private Disposable recordDisposable;
@@ -198,10 +197,10 @@ public class RecordVideoActivity extends AppCompatActivity {
                                 case Close:
                                     RecordVideoActivity.this.cameraCaptureSession = null;
                                     //看看有没有需要捕获操作
-                                    if (capture != null) {
-                                        newCapture(capture.template, capture.surfaceList);
-                                        capture = null;
-                                    }
+//                                    if (capture != null) {
+//                                        newCapture(capture.template, capture.surfaceList);
+//                                        capture = null;
+//                                    }
                                     return Observable.empty();
                                 default://其他事件过滤
                                     return Observable.empty();
@@ -221,8 +220,9 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     private void prepareCapture(int captureTemplate, List<Surface> surfaceList) {
         if (cameraCaptureSession != null) {
-            capture = new Capture(captureTemplate, surfaceList);//先把数据准备好，等待上一个会话关闭，然后开始下一个会话
-            cameraCaptureSession.close();
+//            capture = new Capture(captureTemplate, surfaceList);//先把数据准备好，等待上一个会话关闭，然后开始下一个会话
+//            cameraCaptureSession.close();
+            newCapture(captureTemplate, surfaceList);
         } else {
             newCapture(captureTemplate, surfaceList);//如果没有上一个会话，则直接开始一个新的会话
         }
@@ -368,7 +368,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
-            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface(), mediaRecordSurface));
         }
 
         @Override
