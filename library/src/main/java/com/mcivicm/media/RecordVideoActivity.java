@@ -1,28 +1,27 @@
 package com.mcivicm.media;
 
 import android.app.Service;
+import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
-import android.media.MediaCodec;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Message;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.util.Pair;
+import android.util.Size;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewTreeObserver;
 
@@ -31,6 +30,8 @@ import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
 import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
+import com.mcivicm.media.camera2.ToastErrorObserver;
+import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
 import com.mcivicm.media.helper.ToastHelper;
@@ -56,18 +57,14 @@ import io.reactivex.functions.Function;
 
 public class RecordVideoActivity extends AppCompatActivity {
 
-    private SurfaceView surfaceView;
-    private SurfaceView surfaceView2;
+    private TextureView textureView;//preview
     private VolumeView volumeView;
     private AppCompatTextView recordVideo;
 
-    private SurfaceHolder surfaceHolder;
-    private SurfaceHolder surfaceHolder2;
-    private Surface persistentSurface = MediaCodec.createPersistentInputSurface();
-    private final MediaRecorder mediaRecorder = new MediaRecorder();
+    private Size textureViewSize;
+    private MediaRecorder mediaRecorder;//record;
 
     private Handler nonMainHandler;
-    private Capture nextCapture = null;
     private CameraManager cameraManager = null;
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
@@ -80,38 +77,35 @@ public class RecordVideoActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         initHandler();
         setContentView(R.layout.activity_record_video);
-        surfaceView = findViewById(R.id.surface_view);
-        surfaceView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+        textureView = findViewById(R.id.texture_view);
+        textureView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
-//                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, surfaceView.getWidth(), surfaceView.getHeight());
-//                try {
-//                    mediaRecorder.prepare();
-//                } catch (IOException e) {
-//                    e.printStackTrace();
-//                }
-                surfaceView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                textureViewSize = new Size(textureView.getWidth(), textureView.getHeight());
+                textureView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
-        surfaceView2 = findViewById(R.id.surface_view2);
-        surfaceView2.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                surfaceView2.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-            }
-        });
+        textureView.setSurfaceTextureListener(new SurfaceTextureListener());
         volumeView = findViewById(R.id.record_button_layout);
         recordVideo = findViewById(R.id.record_button);
 
-        surfaceView.getHolder().addCallback(new SurfaceCallback());
-        surfaceView2.getHolder().addCallback(new SurfaceCallback2());
         recordVideo.setOnTouchListener(new TouchListener());
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        permission();
+    }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (textureView.isAvailable()) {
+            startPreview();
+        } else {
+            textureView.setSurfaceTextureListener(new SurfaceTextureListener());
+        }
     }
 
     @Override
@@ -189,6 +183,9 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     //生成一个新的捕捉会话
     private Observable<CameraCaptureSession> newCaptureSession(final List<Surface> list) {
+        if (cameraCaptureSession != null) {
+            cameraCaptureSession.close();//主动关闭，能销毁原来的Surface
+        }
         return cameraDevice()
                 .flatMap(new Function<CameraDevice, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
                     @Override
@@ -209,13 +206,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                                 return Observable.empty();
                             case Closed:
                                 RecordVideoActivity.this.cameraCaptureSession = null;
-                                //发送捕捉请求
-                                if (nextCapture != null) {
-                                    Message m = Message.obtain(nonMainHandler);
-                                    m.obj = nextCapture;
-                                    m.sendToTarget();
-                                    nextCapture = null;
-                                }
                                 return Observable.empty();
                             default://其他事件过滤
                                 return Observable.empty();
@@ -237,9 +227,10 @@ public class RecordVideoActivity extends AppCompatActivity {
     private void initHandler() {
         HandlerThread handlerThread = new HandlerThread("Camera2");
         handlerThread.start();
-        nonMainHandler = new Handler(handlerThread.getLooper(), new CameraHandlerCallback());
+        nonMainHandler = new Handler(handlerThread.getLooper());
     }
 
+    //用当前会话新建一个捕捉
     private void capture(final int captureTemplate, final List<Surface> surfaceList) {
         cameraCaptureSession(surfaceList)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
@@ -290,6 +281,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                 });
     }
 
+    //用新的会话新建捕捉
     private void newCapture(final int captureTemplate, final List<Surface> surfaceList) {
         newCaptureSession(surfaceList)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
@@ -339,6 +331,113 @@ public class RecordVideoActivity extends AppCompatActivity {
                 });
     }
 
+    private void permission() {
+        CameraOneHelper.cameraPermission(this)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
+        CameraOneHelper.storagePermission(this)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
+        AudioRecordHelper.recordAudioPermission(this)
+                .subscribe(new Observer<Boolean>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Boolean aBoolean) {
+
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
+    }
+
+    private void startPreview() {
+        if (!textureView.isAvailable() || textureViewSize == null) {
+            return;
+        }
+        SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
+        surfaceTexture.setDefaultBufferSize(textureViewSize.getWidth(), textureViewSize.getHeight());
+        Surface previewSurface = new Surface(surfaceTexture);
+        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
+    }
+
+    private void startRecord() {
+        if (!textureView.isAvailable() || textureViewSize == null) {
+            return;
+        }
+        SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
+        surfaceTexture.setDefaultBufferSize(textureViewSize.getWidth(), textureViewSize.getHeight());
+        Surface recordSurface = new Surface(surfaceTexture);
+        mediaRecorder = new MediaRecorder();
+        CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, textureViewSize.getWidth(), textureViewSize.getHeight());
+        try {
+            mediaRecorder.prepare();
+            //a new capture
+            newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()));//must after calling prepare().
+            //start recording
+            mediaRecorder.start();
+        } catch (IOException e) {
+            ToastHelper.toast(RecordVideoActivity.this, e.getMessage());
+        }
+    }
+
+    private void stopRecord() {
+        if (mediaRecorder != null) {
+            mediaRecorder.stop();
+            mediaRecorder.reset();
+            mediaRecorder.release();
+        }
+    }
+
     private void recordVideo() {
         Observable.intervalRange(0, 10020, 0, 1, TimeUnit.MILLISECONDS)
                 .observeOn(AndroidSchedulers.mainThread())
@@ -348,8 +447,8 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制完成");
-                        mediaRecorder.stop();
-                        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                        stopRecord();
+                        startPreview();
                     }
                 })
                 .subscribe(new io.reactivex.Observer<Long>() {
@@ -362,7 +461,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.setOrientation(0);
 
                         //开始录制视频
-                        mediaRecorder.start();
+                        startRecord();
                     }
 
                     @Override
@@ -376,7 +475,8 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制失败");
-                        mediaRecorder.stop();
+                        stopRecord();
+                        startPreview();
                     }
 
                     @Override
@@ -385,7 +485,8 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制完成");
-                        mediaRecorder.stop();
+                        stopRecord();
+                        startPreview();
                     }
                 });
     }
@@ -393,47 +494,29 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     private boolean previewQ = true;
 
-    private class SurfaceCallback implements SurfaceHolder.Callback {
+    //表面纹理监听器
+    private class SurfaceTextureListener implements TextureView.SurfaceTextureListener {
 
         @Override
-        public void surfaceCreated(SurfaceHolder holder) {
-            RecordVideoActivity.this.surfaceHolder = holder;
-            newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+            startPreview();
+            log("available");
         }
 
         @Override
-        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            RecordVideoActivity.this.surfaceHolder = holder;
-            log("surfaceChanged.");
+        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+            log("sizeChanged");
         }
 
         @Override
-        public void surfaceDestroyed(SurfaceHolder holder) {
-            RecordVideoActivity.this.surfaceHolder = holder;
-            if (cameraDevice != null) {
-                cameraDevice.close();
-            }
-        }
-    }
-
-    private class SurfaceCallback2 implements SurfaceHolder.Callback {
-
-        @Override
-        public void surfaceCreated(SurfaceHolder holder) {
-            RecordVideoActivity.this.surfaceHolder2 = holder;
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+            log("destroyed");
+            return true;
         }
 
         @Override
-        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            RecordVideoActivity.this.surfaceHolder2 = holder;
-        }
-
-        @Override
-        public void surfaceDestroyed(SurfaceHolder holder) {
-            RecordVideoActivity.this.surfaceHolder2 = holder;
-            if (cameraDevice != null) {
-                cameraDevice.close();
-            }
+        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+            log("updated");
         }
     }
 
@@ -460,10 +543,10 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
             if (previewQ) {
-                newCapture(CameraDevice.TEMPLATE_RECORD, list(surfaceHolder.getSurface()));
+                startPreview();
                 previewQ = false;
             } else {
-                newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                newCapture(CameraDevice.TEMPLATE_PREVIEW, list());
                 previewQ = true;
             }
             return true;
@@ -475,26 +558,4 @@ public class RecordVideoActivity extends AppCompatActivity {
         }
     }
 
-    private class Capture {
-
-        int template;
-        List<Surface> surfaceList;
-
-        Capture(int template, List<Surface> surfaceList) {
-            this.template = template;
-            this.surfaceList = surfaceList;
-        }
-    }
-
-    private class CameraHandlerCallback implements Handler.Callback {
-
-        @Override
-        public boolean handleMessage(Message msg) {
-            Capture capture = (Capture) msg.obj;
-            if (capture.surfaceList != null && capture.surfaceList.size() > 0) {
-                newCapture(capture.template, capture.surfaceList);
-            }
-            return true;
-        }
-    }
 }
