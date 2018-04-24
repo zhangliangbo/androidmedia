@@ -5,5 +5,5 @@ package com.mcivicm.media.camera2;
  */
 
 public enum SessionState {
-    Ready, Active, CaptureQueueEmpty, Close, SurfacePrepared, Configured, ConfiguredFailed
+    Ready, Active, CaptureQueueEmpty, Closed, SurfacePrepared, Configured, ConfiguredFailed
 }

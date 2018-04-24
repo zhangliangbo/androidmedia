@@ -3,7 +3,6 @@ package com.mcivicm.media.camera2;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
-import android.hardware.camera2.CameraManager;
 import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.util.Pair;
@@ -82,7 +81,7 @@ public class SessionStateObservable extends Observable<Pair<CameraCaptureSession
         public void onClosed(@NonNull CameraCaptureSession session) {
             super.onClosed(session);
             if (!isDisposed()) {
-                observer.onNext(Pair.create(session, SessionState.Close));
+                observer.onNext(Pair.create(session, SessionState.Closed));
             }
         }
 

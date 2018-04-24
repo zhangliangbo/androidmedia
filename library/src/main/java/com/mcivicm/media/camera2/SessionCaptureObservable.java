@@ -136,11 +136,6 @@ public class SessionCaptureObservable extends Observable<Pair<Integer, ? extends
         @Override
         public void dispose() {
             if (!isDisposed()) {
-                try {
-                    cameraCaptureSession.abortCaptures();
-                } catch (CameraAccessException e) {
-                    //ignore
-                }
                 disposed.set(true);
             }
         }

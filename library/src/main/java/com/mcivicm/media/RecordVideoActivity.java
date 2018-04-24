@@ -7,10 +7,12 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
+import android.media.MediaCodec;
 import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Message;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.AppCompatTextView;
@@ -36,7 +38,6 @@ import com.mcivicm.media.view.VolumeView;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -56,25 +57,26 @@ import io.reactivex.functions.Function;
 public class RecordVideoActivity extends AppCompatActivity {
 
     private SurfaceView surfaceView;
+    private SurfaceView surfaceView2;
     private VolumeView volumeView;
     private AppCompatTextView recordVideo;
 
     private SurfaceHolder surfaceHolder;
-    private Surface mediaRecordSurface;
-    final MediaRecorder mediaRecorder = new MediaRecorder();
+    private SurfaceHolder surfaceHolder2;
+    private Surface persistentSurface = MediaCodec.createPersistentInputSurface();
+    private final MediaRecorder mediaRecorder = new MediaRecorder();
 
     private Handler nonMainHandler;
+    private Capture nextCapture = null;
     private CameraManager cameraManager = null;
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
-    private Capture capture = null;//由于关闭会话是异步的，故每次开始会话操作（预览，拍照，录制）时先把Surface保存起来再操作
 
     private Disposable recordDisposable;
-    private boolean resetQ = false;
 
     @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
+    protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initHandler();
         setContentView(R.layout.activity_record_video);
@@ -82,20 +84,27 @@ public class RecordVideoActivity extends AppCompatActivity {
         surfaceView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
-                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, surfaceView.getWidth(), surfaceView.getHeight());
-                try {
-                    mediaRecorder.prepare();
-                    mediaRecordSurface = mediaRecorder.getSurface();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+//                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, surfaceView.getWidth(), surfaceView.getHeight());
+//                try {
+//                    mediaRecorder.prepare();
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
                 surfaceView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+            }
+        });
+        surfaceView2 = findViewById(R.id.surface_view2);
+        surfaceView2.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override
+            public void onGlobalLayout() {
+                surfaceView2.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
         volumeView = findViewById(R.id.record_button_layout);
         recordVideo = findViewById(R.id.record_button);
 
         surfaceView.getHolder().addCallback(new SurfaceCallback());
+        surfaceView2.getHolder().addCallback(new SurfaceCallback2());
         recordVideo.setOnTouchListener(new TouchListener());
     }
 
@@ -121,47 +130,52 @@ public class RecordVideoActivity extends AppCompatActivity {
         return cameraManager;
     }
 
+    //生成一个新的设备
+    private Observable<CameraDevice> newCameraDevice() {
+        return CameraOneHelper.cameraPermission(RecordVideoActivity.this)//申请摄像头权限
+                .flatMap(new Function<Boolean, ObservableSource<String>>() {
+                    @Override
+                    public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
+                        if (aBoolean) {
+                            String[] cameraIdList = manager().getCameraIdList();
+                            for (String id : cameraIdList) {
+                                CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                                int facing = cc.get(CameraCharacteristics.LENS_FACING);
+                                if (facing == cameraFacing) {
+                                    return Observable.just(id);
+                                }
+                            }
+                            return Observable.error(new Exception(cameraFacing == CameraCharacteristics.LENS_FACING_BACK ? "未找到后置摄像头" : "未找到前置摄像头"));
+                        } else {
+                            return Observable.empty();
+                        }
+                    }
+                })
+                .flatMap(new Function<String, ObservableSource<Pair<CameraDevice, State>>>() {
+                    @Override
+                    public ObservableSource<Pair<CameraDevice, State>> apply(String id) throws Exception {
+                        return new StateObservable(manager(), id, nonMainHandler);//一旦打开摄像头，马上会收到摄像头被占用的通知
+                    }
+                })
+                .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<CameraDevice>>() {
+                    @Override
+                    public ObservableSource<CameraDevice> apply(Pair<CameraDevice, State> cameraDeviceStatePair) throws Exception {
+                        switch (cameraDeviceStatePair.second) {
+                            case Open:
+                                RecordVideoActivity.this.cameraDevice = cameraDeviceStatePair.first;//给类范围变量赋个值
+                                return Observable.just(cameraDeviceStatePair.first);
+                            default:
+                                RecordVideoActivity.this.cameraDevice = null;
+                                return Observable.empty();//通道关闭或失联，仅赋值，不传给下游
+                        }
+                    }
+                });
+    }
+
     //打开摄像头
     private Observable<CameraDevice> cameraDevice() {
         if (cameraDevice == null) {
-            return CameraOneHelper.cameraPermission(RecordVideoActivity.this)//申请摄像头权限
-                    .flatMap(new Function<Boolean, ObservableSource<String>>() {
-                        @Override
-                        public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
-                            if (aBoolean) {
-                                String[] cameraIdList = manager().getCameraIdList();
-                                for (String id : cameraIdList) {
-                                    CameraCharacteristics cc = manager().getCameraCharacteristics(id);
-                                    int facing = cc.get(CameraCharacteristics.LENS_FACING);
-                                    if (facing == cameraFacing) {
-                                        return Observable.just(id);
-                                    }
-                                }
-                                return Observable.error(new Exception(cameraFacing == CameraCharacteristics.LENS_FACING_BACK ? "未找到后置摄像头" : "未找到前置摄像头"));
-                            } else {
-                                return Observable.empty();
-                            }
-                        }
-                    })
-                    .flatMap(new Function<String, ObservableSource<Pair<CameraDevice, State>>>() {
-                        @Override
-                        public ObservableSource<Pair<CameraDevice, State>> apply(String id) throws Exception {
-                            return new StateObservable(manager(), id, nonMainHandler);//一旦打开摄像头，马上会收到摄像头被占用的通知
-                        }
-                    })
-                    .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<CameraDevice>>() {
-                        @Override
-                        public ObservableSource<CameraDevice> apply(Pair<CameraDevice, State> cameraDeviceStatePair) throws Exception {
-                            switch (cameraDeviceStatePair.second) {
-                                case Open:
-                                    RecordVideoActivity.this.cameraDevice = cameraDeviceStatePair.first;//给类范围变量赋个值
-                                    return Observable.just(cameraDeviceStatePair.first);
-                                default:
-                                    RecordVideoActivity.this.cameraDevice = null;
-                                    return Observable.empty();//通道关闭或失联，仅赋值，不传给下游
-                            }
-                        }
-                    });
+            return newCameraDevice();
         } else {
             return Observable.just(cameraDevice);
         }
@@ -173,63 +187,60 @@ public class RecordVideoActivity extends AppCompatActivity {
         return list;
     }
 
+    //生成一个新的捕捉会话
+    private Observable<CameraCaptureSession> newCaptureSession(final List<Surface> list) {
+        return cameraDevice()
+                .flatMap(new Function<CameraDevice, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
+                    @Override
+                    public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(CameraDevice cameraDevice) throws Exception {
+                        return new SessionStateObservable(cameraDevice, list, nonMainHandler);
+                    }
+                })
+                .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<CameraCaptureSession>>() {
+                    @Override
+                    public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
+                        log(cameraCaptureSessionSessionStatePair.second.name());
+                        switch (cameraCaptureSessionSessionStatePair.second) {
+                            case Configured:
+                                RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
+                                return Observable.just(cameraCaptureSessionSessionStatePair.first);
+                            case ConfiguredFailed:
+                                RecordVideoActivity.this.cameraCaptureSession = null;
+                                return Observable.empty();
+                            case Closed:
+                                RecordVideoActivity.this.cameraCaptureSession = null;
+                                //发送捕捉请求
+                                if (nextCapture != null) {
+                                    Message m = Message.obtain(nonMainHandler);
+                                    m.obj = nextCapture;
+                                    m.sendToTarget();
+                                    nextCapture = null;
+                                }
+                                return Observable.empty();
+                            default://其他事件过滤
+                                return Observable.empty();
+                        }
+                    }
+                });
+    }
+
     //打开摄像头会话
     private Observable<CameraCaptureSession> cameraCaptureSession(final List<Surface> list) {
         if (cameraCaptureSession == null) {
-            return cameraDevice()
-                    .flatMap(new Function<CameraDevice, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
-                        @Override
-                        public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(CameraDevice cameraDevice) throws Exception {
-                            return new SessionStateObservable(cameraDevice, list, nonMainHandler);
-                        }
-                    })
-                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<CameraCaptureSession>>() {
-                        @Override
-                        public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
-                            log(cameraCaptureSessionSessionStatePair.second.name());
-                            switch (cameraCaptureSessionSessionStatePair.second) {
-                                case Configured:
-                                    RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
-                                    return Observable.just(cameraCaptureSessionSessionStatePair.first);
-                                case ConfiguredFailed:
-                                    RecordVideoActivity.this.cameraCaptureSession = null;
-                                    return Observable.empty();
-                                case Close:
-                                    RecordVideoActivity.this.cameraCaptureSession = null;
-                                    //看看有没有需要捕获操作
-//                                    if (capture != null) {
-//                                        newCapture(capture.template, capture.surfaceList);
-//                                        capture = null;
-//                                    }
-                                    return Observable.empty();
-                                default://其他事件过滤
-                                    return Observable.empty();
-                            }
-                        }
-                    });
+            return newCaptureSession(list);
         } else {
             return Observable.just(cameraCaptureSession);
         }
     }
 
+
     private void initHandler() {
         HandlerThread handlerThread = new HandlerThread("Camera2");
         handlerThread.start();
-        nonMainHandler = new Handler(handlerThread.getLooper());
+        nonMainHandler = new Handler(handlerThread.getLooper(), new CameraHandlerCallback());
     }
 
-    private void prepareCapture(int captureTemplate, List<Surface> surfaceList) {
-        if (cameraCaptureSession != null) {
-//            capture = new Capture(captureTemplate, surfaceList);//先把数据准备好，等待上一个会话关闭，然后开始下一个会话
-//            cameraCaptureSession.close();
-            newCapture(captureTemplate, surfaceList);
-        } else {
-            newCapture(captureTemplate, surfaceList);//如果没有上一个会话，则直接开始一个新的会话
-        }
-    }
-
-
-    private void newCapture(final int captureTemplate, final List<Surface> surfaceList) {
+    private void capture(final int captureTemplate, final List<Surface> surfaceList) {
         cameraCaptureSession(surfaceList)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
@@ -256,7 +267,64 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                     @Override
                     public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
-                        Log.d("zhang", "previewing.");
+                        switch (captureTemplate) {
+                            case CameraDevice.TEMPLATE_PREVIEW:
+                                Log.d("zhang", "previewing.");
+                                break;
+                            case CameraDevice.TEMPLATE_RECORD:
+                                Log.d("zhang", "recording.");
+                                break;
+                        }
+
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+
+                    }
+
+                    @Override
+                    public void onComplete() {
+
+                    }
+                });
+    }
+
+    private void newCapture(final int captureTemplate, final List<Surface> surfaceList) {
+        newCaptureSession(surfaceList)
+                .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
+                    @Override
+                    public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
+                        return new SessionCaptureObservable(
+                                cameraCaptureSession,
+                                captureTemplate,
+                                new SessionCaptureObservable.RequestBuilderInitializer() {
+                                    @Override
+                                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                                        for (Surface surface : surfaceList) {
+                                            builder.addTarget(surface);
+                                        }
+                                    }
+                                },
+                                nonMainHandler);
+                    }
+                })
+                .subscribe(new Observer<Pair<Integer, ? extends CameraMetadata>>() {
+                    @Override
+                    public void onSubscribe(Disposable d) {
+
+                    }
+
+                    @Override
+                    public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
+                        switch (captureTemplate) {
+                            case CameraDevice.TEMPLATE_PREVIEW:
+                                Log.d("zhang", "previewing.");
+                                break;
+                            case CameraDevice.TEMPLATE_RECORD:
+                                Log.d("zhang", "recording.");
+                                break;
+                        }
                     }
 
                     @Override
@@ -272,7 +340,6 @@ public class RecordVideoActivity extends AppCompatActivity {
     }
 
     private void recordVideo() {
-
         Observable.intervalRange(0, 10020, 0, 1, TimeUnit.MILLISECONDS)
                 .observeOn(AndroidSchedulers.mainThread())
                 .doOnDispose(new Action() {
@@ -281,34 +348,20 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制完成");
-                        try {
-                            mediaRecorder.stop();
-                            mediaRecorder.reset();
-                            resetQ = true;
-                        } catch (Exception e) {
-
-                        }
-                        //继续预览
-                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                        mediaRecorder.stop();
+                        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
                     }
                 })
                 .subscribe(new io.reactivex.Observer<Long>() {
                     @Override
                     public void onSubscribe(Disposable d) {
+
                         recordDisposable = d;
 
                         volumeView.showEdge();
                         volumeView.setOrientation(0);
+
                         //开始录制视频
-                        if (resetQ) {
-                            try {
-                                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, surfaceView.getWidth(), surfaceView.getHeight());
-                                mediaRecorder.prepare();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        prepareCapture(CameraDevice.TEMPLATE_RECORD, list(surfaceHolder.getSurface(), mediaRecordSurface));
                         mediaRecorder.start();
                     }
 
@@ -319,67 +372,65 @@ public class RecordVideoActivity extends AppCompatActivity {
 
                     @Override
                     public void onError(Throwable e) {
+                        recordDisposable = null;
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制失败");
-                        try {
-                            mediaRecorder.stop();
-                            mediaRecorder.reset();
-                            resetQ = true;
-                        } catch (Exception ex) {
-
-                        }
-                        //继续预览
-                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                        mediaRecorder.stop();
                     }
 
                     @Override
                     public void onComplete() {
+                        recordDisposable = null;
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         ToastHelper.toast(RecordVideoActivity.this, "录制完成");
-                        try {
-                            mediaRecorder.stop();
-                            mediaRecorder.reset();
-                            resetQ = true;
-                        } catch (Exception e) {
-
-                        }
-                        //继续预览
-                        prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                        mediaRecorder.stop();
                     }
                 });
     }
 
-    //一次捕获需要的参数
-    private class Capture {
 
-        int template;
-        List<Surface> surfaceList = new ArrayList<>();
-
-        Capture(int template, List<Surface> surfaceList) {
-            this.template = template;
-            this.surfaceList = surfaceList;
-        }
-    }
+    private boolean previewQ = true;
 
     private class SurfaceCallback implements SurfaceHolder.Callback {
 
         @Override
         public void surfaceCreated(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
-            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface(), mediaRecordSurface));
+            newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
         }
 
         @Override
         public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             RecordVideoActivity.this.surfaceHolder = holder;
-
+            log("surfaceChanged.");
         }
 
         @Override
         public void surfaceDestroyed(SurfaceHolder holder) {
             RecordVideoActivity.this.surfaceHolder = holder;
+            if (cameraDevice != null) {
+                cameraDevice.close();
+            }
+        }
+    }
+
+    private class SurfaceCallback2 implements SurfaceHolder.Callback {
+
+        @Override
+        public void surfaceCreated(SurfaceHolder holder) {
+            RecordVideoActivity.this.surfaceHolder2 = holder;
+        }
+
+        @Override
+        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            RecordVideoActivity.this.surfaceHolder2 = holder;
+        }
+
+        @Override
+        public void surfaceDestroyed(SurfaceHolder holder) {
+            RecordVideoActivity.this.surfaceHolder2 = holder;
             if (cameraDevice != null) {
                 cameraDevice.close();
             }
@@ -408,13 +459,42 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            prepareCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+            if (previewQ) {
+                newCapture(CameraDevice.TEMPLATE_RECORD, list(surfaceHolder.getSurface()));
+                previewQ = false;
+            } else {
+                newCapture(CameraDevice.TEMPLATE_PREVIEW, list(surfaceHolder.getSurface()));
+                previewQ = true;
+            }
             return true;
         }
 
         @Override
         public void onLongPress(MotionEvent e) {
             recordVideo();
+        }
+    }
+
+    private class Capture {
+
+        int template;
+        List<Surface> surfaceList;
+
+        Capture(int template, List<Surface> surfaceList) {
+            this.template = template;
+            this.surfaceList = surfaceList;
+        }
+    }
+
+    private class CameraHandlerCallback implements Handler.Callback {
+
+        @Override
+        public boolean handleMessage(Message msg) {
+            Capture capture = (Capture) msg.obj;
+            if (capture.surfaceList != null && capture.surfaceList.size() > 0) {
+                newCapture(capture.template, capture.surfaceList);
+            }
+            return true;
         }
     }
 }
