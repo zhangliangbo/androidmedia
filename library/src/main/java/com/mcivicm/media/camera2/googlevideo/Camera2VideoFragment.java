@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.mcivicm.media.googlecamera2video;
+package com.mcivicm.media.camera2.googlevideo;
 
 import android.Manifest;
 import android.app.Activity;

@@ -31,7 +31,7 @@
 
         </activity>
 
-        <activity android:name="com.mcivicm.media.googlecamera2video.CameraActivity"
+        <activity android:name="com.mcivicm.media.camera2.googlevideo.CameraActivity"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
