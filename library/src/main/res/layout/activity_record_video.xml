@@ -5,7 +5,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <TextureView
+    <com.mcivicm.media.camera2.googlevideo.AutoFitTextureView
         android:id="@+id/texture_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -31,6 +31,8 @@
             android:background="@drawable/video_record"
             android:gravity="center"
             android:text=""
+            android:textColor="@android:color/white"
+            android:textSize="24sp"
             tools:ignore="HardcodedText" />
 
     </com.mcivicm.media.view.VolumeView>

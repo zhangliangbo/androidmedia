@@ -1,5 +1,8 @@
 package com.mcivicm.media.helper;
 
+import android.app.Activity;
+import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
@@ -8,6 +11,7 @@ import android.media.MediaRecorder;
 import android.os.Environment;
 import android.util.Log;
 import android.util.Size;
+import android.view.Surface;
 
 import com.mcivicm.media.camera2.googlevideo.Camera2VideoFragment;
 
@@ -15,6 +19,7 @@ import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -69,7 +74,7 @@ public class CameraTwoHelper {
         //设置码率
         mediaRecorder.setVideoEncodingBitRate(5 * width * height);
         //设置视频大小
-//        mediaRecorder.setVideoSize(width, height);
+        mediaRecorder.setVideoSize(width, height);
         //设置记录会话的最大持续时间
         mediaRecorder.setMaxDuration(10 * 1000);
         //设置输出文件
@@ -78,51 +83,45 @@ public class CameraTwoHelper {
 
 
     /**
-     * In this sample, we choose a video size with 3x4 aspect ratio. Also, we don't use sizes
-     * larger than 1080p, since MediaRecorder cannot handle such a high-resolution video.
+     * 选最大的吧，占内存，选小了吧，不够清晰
+     * 还是参考视图的大小吧
      *
-     * @param choices The list of available sizes
-     * @return The video size
+     * @param choices    所有支持的视频大小
+     * @param viewWidth  摄像头传感器为0度时（一般是横屏）的宽度
+     * @param viewHeight 摄像头传感器为0度时（一般是横屏）的高度
+     * @return
      */
-    public static Size chooseVideoSize(Size[] choices) {
+    public static Size chooseVideoSize(Size[] choices, int viewWidth, int viewHeight) {
+        List<Size> enoughList = new ArrayList<>();
         for (Size size : choices) {
-            if (size.getWidth() == size.getHeight() * 4 / 3 && size.getWidth() <= 1080) {
-                return size;
+            if (size.getWidth() >= viewWidth && size.getHeight() >= viewHeight) {
+                enoughList.add(size);
             }
         }
-        return choices[choices.length - 1];
+        if (enoughList.size() == 0) {
+            Arrays.sort(choices, new CompareSizesByArea());
+            return choices[choices.length - 1];
+        } else if (enoughList.size() == 1) {
+            return enoughList.get(0);
+        } else {
+            return Collections.min(enoughList, new CompareSizesByArea());//合格中的最小者
+        }
     }
 
     /**
-     * Given {@code choices} of {@code Size}s supported by a camera, chooses the smallest one whose
-     * width and height are at least as large as the respective requested values, and whose aspect
-     * ratio matches with the specified value.
+     * 选最大的吧，只是预览而已
      *
-     * @param choices     The list of sizes that the camera supports for the intended output class
-     * @param width       The minimum desired width
-     * @param height      The minimum desired height
-     * @param aspectRatio The aspect ratio
-     * @return The optimal {@code Size}, or an arbitrary one if none were big enough
+     * @param choices 所有支持的大小
+     * @return
      */
-    public static Size chooseOptimalSize(Size[] choices, int width, int height, Size aspectRatio) {
-        // Collect the supported resolutions that are at least as big as the preview Surface
-        List<Size> bigEnough = new ArrayList<>();
-        int w = aspectRatio.getWidth();
-        int h = aspectRatio.getHeight();
-        for (Size option : choices) {
-            if (option.getHeight() == option.getWidth() * h / w &&
-                    option.getWidth() >= width && option.getHeight() >= height) {
-                bigEnough.add(option);
-            }
+    public static Size chooseMaxSize(Size[] choices) {
+        if (choices == null || choices.length == 0) {
+            throw new IllegalStateException("choices=null or choices.length=0");
         }
-
-        // Pick the smallest of those, assuming we found any
-        if (bigEnough.size() > 0) {
-            return Collections.min(bigEnough, new CompareSizesByArea());
-        } else {
-            return choices[0];
-        }
+        Arrays.sort(choices, new CompareSizesByArea());
+        return choices[choices.length - 1];
     }
+
 
     /**
      * Compares two {@code Size}s based on their areas.
