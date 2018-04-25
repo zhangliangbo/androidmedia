@@ -75,11 +75,8 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     private Handler nonMainHandler;
     private HandlerThread nonMainThread;
-    private CameraManager cameraManager = null;
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
-    private CameraCaptureSession cameraCaptureSession;
-    private Capture nextCapture = null;//下一个捕捉
 
     private Disposable recordDisposable;
 
@@ -116,6 +113,9 @@ public class RecordVideoActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (cameraDevice != null) {
+            cameraDevice.close();
+        }
         nonMainThread.quitSafely();
     }
 
@@ -124,10 +124,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     }
 
     private CameraManager manager() {
-        if (cameraManager == null) {
-            cameraManager = (CameraManager) getSystemService(Service.CAMERA_SERVICE);
-        }
-        return cameraManager;
+        return (CameraManager) getSystemService(Service.CAMERA_SERVICE);
     }
 
     //生成一个新的设备
@@ -229,21 +226,10 @@ public class RecordVideoActivity extends AppCompatActivity {
                         log(cameraCaptureSessionSessionStatePair.second.name());
                         switch (cameraCaptureSessionSessionStatePair.second) {
                             case Configured:
-                                RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
                                 return Observable.just(cameraCaptureSessionSessionStatePair.first);
                             case ConfiguredFailed:
-                                RecordVideoActivity.this.cameraCaptureSession = null;
-                                return Observable.empty();
+                                return Observable.error(new Exception("打开会话失败"));
                             case Closed:
-                                RecordVideoActivity.this.cameraCaptureSession = null;
-                                //会话关闭之后看有没有下一个捕获任务，如果有，则立即开始
-                                if (nextCapture != null) {
-                                    newCapture(nextCapture.template, nextCapture.surfaceList);
-                                    if (nextCapture.template == CameraDevice.TEMPLATE_RECORD) {
-                                        mediaRecorder.start();//如果是录制视频，则开始录制
-                                    }
-                                    nextCapture = null;
-                                }
                                 return Observable.empty();
                             default://其他事件过滤
                                 return Observable.empty();
@@ -335,16 +321,7 @@ public class RecordVideoActivity extends AppCompatActivity {
             surfaceTexture.setDefaultBufferSize(viewSize.getWidth(), viewSize.getHeight());
         }
         Surface previewSurface = new Surface(surfaceTexture);
-        //还没有开启会话则开启新的会话，如果有会话，则先准备数据，关闭当前会话，等待OnClosed回调在进行下次会话
-        if (cameraCaptureSession == null) {
-            newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
-        } else {
-            nextCapture = new Capture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
-            //准备好下一次捕获需要的数据之后立即关闭当前会话，在当前会话结束时会调用OnClosed接口，届时再开启下一次会话，保证两次会话是串行的。如果两次会话有交叉的地方，会导致错误。
-            if (cameraCaptureSession != null) {
-                cameraCaptureSession.close();//会触发OnClosed事件
-            }
-        }
+        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
     }
 
     private void startRecord() {
@@ -376,17 +353,10 @@ public class RecordVideoActivity extends AppCompatActivity {
             ToastHelper.toast(RecordVideoActivity.this, e.getMessage());
             return;
         }
-        if (cameraCaptureSession == null) {
-            //a new capture
-            newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()));//must after calling prepare().
-            //start recording
-            mediaRecorder.start();
-        } else {
-            nextCapture = new Capture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()));
-            if (cameraCaptureSession != null) {
-                cameraCaptureSession.close();
-            }
-        }
+        //a new capture
+        newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()));//must after calling prepare().
+        //start recording
+        mediaRecorder.start();
     }
 
     private void stopRecord() {
@@ -463,12 +433,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
 
     /**
-     * Configures the necessary {@link android.graphics.Matrix} transformation to `mTextureView`.
-     * This method should not to be called until the camera preview size is determined in
-     * openCamera, or until the size of `mTextureView` is fixed.
-     *
-     * @param viewWidth  The width of `mTextureView`
-     * @param viewHeight The height of `mTextureView`
+     * 横竖屏切换时，需要将原始数据变换后显示在TextureView上
      */
     private void configureTransform(int viewWidth, int viewHeight) {
         if (null == textureView || null == previewSize) {
@@ -491,17 +456,6 @@ public class RecordVideoActivity extends AppCompatActivity {
             matrix.postRotate(90 * (rotation - 2), centerX, centerY);
         }
         textureView.setTransform(matrix);
-    }
-
-    private class Capture {
-
-        int template;
-        List<Surface> surfaceList;
-
-        Capture(int template, List<Surface> surfaceList) {
-            this.template = template;
-            this.surfaceList = surfaceList;
-        }
     }
 
     //表面纹理监听器
@@ -549,7 +503,6 @@ public class RecordVideoActivity extends AppCompatActivity {
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            startRecord();
             return true;
         }
 
