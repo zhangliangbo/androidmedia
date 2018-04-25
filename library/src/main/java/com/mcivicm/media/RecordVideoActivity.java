@@ -69,9 +69,9 @@ public class RecordVideoActivity extends AppCompatActivity {
     private AppCompatTextView recordVideo;
 
     private int sensorOrientation = 0;
-    private Size viewSize;
-    private Size previewSize;
-    private Size videoSize;
+    private Size viewSize;//textureView大小
+    private Size previewSize;//预览大小
+    private Size videoSize;//视频大小
 
     private Handler nonMainHandler;
     private HandlerThread nonMainThread;
@@ -92,7 +92,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         textureView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
             public void onGlobalLayout() {
-                viewSize = new Size(textureView.getWidth(), textureView.getHeight());
+                viewSize = new Size(Math.max(textureView.getWidth(), textureView.getHeight()), Math.min(textureView.getWidth(), textureView.getHeight()));
                 textureView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
             }
         });
@@ -153,7 +153,8 @@ public class RecordVideoActivity extends AppCompatActivity {
                                             Math.max(textureView.getWidth(), textureView.getHeight()),
                                             Math.min(textureView.getWidth(), textureView.getHeight())
                                     );
-                                    previewSize = CameraTwoHelper.chooseMaxSize(map.getOutputSizes(SurfaceTexture.class));
+                                    previewSize = CameraTwoHelper.choosePreviewSize(map.getOutputSizes(SurfaceTexture.class));
+                                    configureTransform(textureView.getWidth(), textureView.getHeight());
                                 }
                                 //屏幕的方向
                                 int orientation = getResources().getConfiguration().orientation;
@@ -479,7 +480,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
         float centerX = viewRect.centerX();
         float centerY = viewRect.centerY();
-        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
+        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_180 == rotation || Surface.ROTATION_270 == rotation) {
             bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
             matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
             float scale = Math.max(
@@ -507,15 +508,12 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            viewSize = new Size(width, height);
             startPreview();
-            configureTransform(width, height);
         }
 
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
-            viewSize = new Size(width, height);
-            configureTransform(width, height);
+
         }
 
         @Override

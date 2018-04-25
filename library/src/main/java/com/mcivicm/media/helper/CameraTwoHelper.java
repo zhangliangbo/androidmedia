@@ -92,6 +92,9 @@ public class CameraTwoHelper {
      * @return
      */
     public static Size chooseVideoSize(Size[] choices, int viewWidth, int viewHeight) {
+        if (choices == null || choices.length == 0) {
+            throw new IllegalStateException("choices=null or choices.length=0");
+        }
         List<Size> enoughList = new ArrayList<>();
         for (Size size : choices) {
             if (size.getWidth() >= viewWidth && size.getHeight() >= viewHeight) {
@@ -114,7 +117,7 @@ public class CameraTwoHelper {
      * @param choices 所有支持的大小
      * @return
      */
-    public static Size chooseMaxSize(Size[] choices) {
+    public static Size choosePreviewSize(Size[] choices) {
         if (choices == null || choices.length == 0) {
             throw new IllegalStateException("choices=null or choices.length=0");
         }
