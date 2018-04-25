@@ -320,6 +320,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         } else {
             surfaceTexture.setDefaultBufferSize(viewSize.getWidth(), viewSize.getHeight());
         }
+        //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
         Surface previewSurface = new Surface(surfaceTexture);
         newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
     }
