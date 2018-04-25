@@ -140,7 +140,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                             String[] cameraIdList = manager().getCameraIdList();
                             for (String id : cameraIdList) {
                                 CameraCharacteristics cc = manager().getCameraCharacteristics(id);
-                                //摄像头传感器方位角
+                                //图片摆正需要顺时针旋转的方位角
                                 Integer so = cc.get(CameraCharacteristics.SENSOR_ORIENTATION);
                                 if (so != null) {
                                     sensorOrientation = so;
@@ -369,7 +369,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                 CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, viewSize.getWidth(), viewSize.getHeight());
             }
         }
-        mediaRecorder.setOrientationHint(sensorOrientation);
+        mediaRecorder.setOrientationHint(CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
         try {
             mediaRecorder.prepare();
         } catch (IOException e) {
@@ -480,12 +480,13 @@ public class RecordVideoActivity extends AppCompatActivity {
         RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
         float centerX = viewRect.centerX();
         float centerY = viewRect.centerY();
-        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_180 == rotation || Surface.ROTATION_270 == rotation) {
+        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
             bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
             matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
             float scale = Math.max(
                     (float) viewHeight / previewSize.getHeight(),
-                    (float) viewWidth / previewSize.getWidth());
+                    (float) viewWidth / previewSize.getWidth()
+            );
             matrix.postScale(scale, scale, centerX, centerY);
             matrix.postRotate(90 * (rotation - 2), centerX, centerY);
         }

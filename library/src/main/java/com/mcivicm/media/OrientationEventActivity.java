@@ -1,5 +1,6 @@
 package com.mcivicm.media;
 
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
@@ -17,14 +18,21 @@ public class OrientationEventActivity extends AppCompatActivity {
     private AppCompatTextView orientationInfo;
 
     @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
+    protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_orientation_event);
         orientationInfo = findViewById(R.id.orientation);
         listener = new OrientationEventListener(this) {
             @Override
             public void onOrientationChanged(int orientation) {
-                orientationInfo.setText(String.valueOf(orientation));
+                int screenOrientation = getResources().getConfiguration().orientation;
+                int displayRotation = getWindowManager().getDefaultDisplay().getRotation();
+                //方位角和屏幕方向没有关系
+                if (screenOrientation == Configuration.ORIENTATION_PORTRAIT) {
+                    orientationInfo.setText(String.valueOf(displayRotation + ":" + orientation));
+                } else {
+                    orientationInfo.setText(String.valueOf(displayRotation + ":" + orientation));
+                }
             }
         };
         if (listener.canDetectOrientation()) {

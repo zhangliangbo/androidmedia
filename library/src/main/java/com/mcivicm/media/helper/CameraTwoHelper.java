@@ -11,6 +11,7 @@ import android.media.MediaRecorder;
 import android.os.Environment;
 import android.util.Log;
 import android.util.Size;
+import android.util.SparseIntArray;
 import android.view.Surface;
 
 import com.mcivicm.media.camera2.googlevideo.Camera2VideoFragment;
@@ -32,6 +33,45 @@ import static android.hardware.camera2.CameraCharacteristics.SENSOR_ORIENTATION;
  */
 
 public class CameraTwoHelper {
+
+    private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;//反面摄像头
+    private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;//正面摄像头
+    private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
+    private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
+
+    static {
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_0, 90);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_90, 0);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_180, 270);
+        DEFAULT_ORIENTATIONS.append(Surface.ROTATION_270, 180);
+    }
+
+    static {
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_0, 270);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_90, 180);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
+        INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
+    }
+
+    /**
+     *
+     * 获取MediaRecorder的OrientationHint.
+     *
+     * @param sensorOrientation
+     * @param displayRotation
+     * @return
+     */
+    public static int getOrientationHint(int sensorOrientation, int displayRotation) {
+        switch (sensorOrientation) {
+            case SENSOR_ORIENTATION_DEFAULT_DEGREES:
+                return DEFAULT_ORIENTATIONS.get(displayRotation);
+            case SENSOR_ORIENTATION_INVERSE_DEGREES:
+                return INVERSE_ORIENTATIONS.get(displayRotation);
+            default:
+                return sensorOrientation;
+        }
+    }
+
     /**
      * 获取图片的旋转角
      *
