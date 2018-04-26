@@ -5,6 +5,7 @@ import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
@@ -70,6 +71,7 @@ import io.reactivex.subjects.PublishSubject;
 public class RecordVideoActivity extends AppCompatActivity {
 
     private TextureView textureView;//preview
+    private ImageReader imageReader;//preview
     private MediaRecorder mediaRecorder;//record;
 
     private PublishSubject<Object> mainSubject = PublishSubject.create();//main thread.
@@ -88,6 +90,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     private HandlerThread nonMainThread;
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
+    private CameraCaptureSession cameraCaptureSession;
 
     private Disposable recordDisposable;
 
@@ -240,10 +243,16 @@ public class RecordVideoActivity extends AppCompatActivity {
                     public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
                         switch (cameraCaptureSessionSessionStatePair.second) {
                             case Configured:
+                                log("configure");
+                                RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
                                 return Observable.just(cameraCaptureSessionSessionStatePair.first);
                             case ConfiguredFailed:
+                                log("configure failed");
+                                RecordVideoActivity.this.cameraCaptureSession = null;
                                 return Observable.error(new Exception("打开会话失败"));
                             case Closed:
+                                log("close");
+                                RecordVideoActivity.this.cameraCaptureSession = null;
                                 return Observable.empty();
                             default://其他事件过滤
                                 return Observable.empty();
@@ -317,10 +326,13 @@ public class RecordVideoActivity extends AppCompatActivity {
                     public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
                         switch (captureTemplate) {
                             case CameraDevice.TEMPLATE_PREVIEW:
-//                                Log.d("zhang", "previewing.");
+                                Log.d("zhang", "previewing.");
                                 break;
                             case CameraDevice.TEMPLATE_RECORD:
-//                                Log.d("zhang", "recording.");
+                                Log.d("zhang", "recording.");
+                                break;
+                            case CameraDevice.TEMPLATE_STILL_CAPTURE:
+                                Log.d("zhang", "still capture");
                                 break;
                         }
                     }
@@ -536,7 +548,10 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public void onImageAvailable(ImageReader reader) {
-            ioSubject.onNext(reader);
+            log("available");
+            startPreview();
+            Image image = reader.acquireNextImage();
+            image.close();
         }
     }
 
@@ -576,6 +591,8 @@ public class RecordVideoActivity extends AppCompatActivity {
             Image image = imageReader.acquireNextImage();
             saveImage(image);
             image.close();
+            imageReader.close();
+            startPreview();
         }
 
         @Override
