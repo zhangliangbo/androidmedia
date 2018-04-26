@@ -1,7 +1,7 @@
 package com.mcivicm.media;
 
 import android.app.Service;
-import android.content.res.Configuration;
+import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
@@ -12,8 +12,11 @@ import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.support.annotation.Nullable;
@@ -34,14 +37,16 @@ import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
 import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
-import com.mcivicm.media.camera2.googlevideo.AutoFitTextureView;
 import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.view.VolumeView;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,6 +60,8 @@ import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
 import io.reactivex.functions.Function3;
+import io.reactivex.schedulers.Schedulers;
+import io.reactivex.subjects.PublishSubject;
 
 /**
  * 录制视频
@@ -62,8 +69,11 @@ import io.reactivex.functions.Function3;
 
 public class RecordVideoActivity extends AppCompatActivity {
 
-    private AutoFitTextureView textureView;//preview
+    private TextureView textureView;//preview
     private MediaRecorder mediaRecorder;//record;
+
+    private PublishSubject<Object> mainSubject = PublishSubject.create();//main thread.
+    private PublishSubject<ImageReader> ioSubject = PublishSubject.create();//io thread.
 
     private VolumeView volumeView;
     private AppCompatTextView recordVideo;
@@ -72,6 +82,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     private Size viewSize;//textureView大小
     private Size previewSize;//预览大小
     private Size videoSize;//视频大小
+    private Size bufferSize;//TextureView缓冲大小
 
     private Handler nonMainHandler;
     private HandlerThread nonMainThread;
@@ -84,6 +95,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         initHandler();
+        initSubject();
         setContentView(R.layout.activity_record_video);
         textureView = findViewById(R.id.texture_view);
         textureView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
@@ -91,6 +103,12 @@ public class RecordVideoActivity extends AppCompatActivity {
             public void onGlobalLayout() {
                 viewSize = new Size(Math.max(textureView.getWidth(), textureView.getHeight()), Math.min(textureView.getWidth(), textureView.getHeight()));
                 textureView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+            }
+        });
+        textureView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startPreview();//开始预览
             }
         });
         textureView.setSurfaceTextureListener(new SurfaceTextureListener());
@@ -113,10 +131,9 @@ public class RecordVideoActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (cameraDevice != null) {
-            cameraDevice.close();
-        }
-        nonMainThread.quitSafely();
+        releaseCamera();
+        releaseHandler();
+        releaseSubject();
     }
 
     private void log(String s) {
@@ -151,14 +168,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                                             Math.min(textureView.getWidth(), textureView.getHeight())
                                     );
                                     previewSize = CameraTwoHelper.choosePreviewSize(map.getOutputSizes(SurfaceTexture.class));
-                                    configureTransform(textureView.getWidth(), textureView.getHeight());
-                                }
-                                //屏幕的方向
-                                int orientation = getResources().getConfiguration().orientation;
-                                if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                                    textureView.setAspectRatio(previewSize.getWidth(), previewSize.getHeight());
-                                } else {
-                                    textureView.setAspectRatio(previewSize.getHeight(), previewSize.getWidth());
                                 }
                                 //摄像头的朝向
                                 Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
@@ -195,6 +204,12 @@ public class RecordVideoActivity extends AppCompatActivity {
                 });
     }
 
+    private void releaseCamera() {
+        if (cameraDevice != null) {
+            cameraDevice.close();
+        }
+    }
+
     //打开摄像头
     private Observable<CameraDevice> cameraDevice() {
         if (cameraDevice == null) {
@@ -223,7 +238,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                 .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<CameraCaptureSession>>() {
                     @Override
                     public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
-                        log(cameraCaptureSessionSessionStatePair.second.name());
                         switch (cameraCaptureSessionSessionStatePair.second) {
                             case Configured:
                                 return Observable.just(cameraCaptureSessionSessionStatePair.first);
@@ -245,8 +259,30 @@ public class RecordVideoActivity extends AppCompatActivity {
         nonMainHandler = new Handler(nonMainThread.getLooper());
     }
 
+    private void releaseHandler() {
+        nonMainThread.quitSafely();
+    }
+
+    private void initSubject() {
+        if (!mainSubject.hasObservers()) {
+            mainSubject
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(new MainObserver());
+        }
+        if (!ioSubject.hasObservers()) {
+            ioSubject
+                    .observeOn(Schedulers.io())
+                    .subscribe(new IoObserver());
+        }
+    }
+
+    private void releaseSubject() {
+        mainSubject.onComplete();
+        ioSubject.onComplete();
+    }
+
     //用新的会话新建捕捉
-    private void newCapture(final int captureTemplate, final List<Surface> surfaceList) {
+    private void newCapture(final int captureTemplate, final List<Surface> surfaceList, final SessionCaptureObservable.RequestBuilderInitializer initializer) {
         newCaptureSession(surfaceList)
                 .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
@@ -257,8 +293,14 @@ public class RecordVideoActivity extends AppCompatActivity {
                                 new SessionCaptureObservable.RequestBuilderInitializer() {
                                     @Override
                                     public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                                        for (Surface surface : surfaceList) {
-                                            builder.addTarget(surface);
+                                        if (surfaceList != null) {
+                                            for (Surface surface : surfaceList) {
+                                                builder.addTarget(surface);
+                                            }
+                                        }
+                                        //传进来的initializer就不用添加Surface，因为上面已经添加了，只要传其他参数就行。
+                                        if (initializer != null) {
+                                            initializer.onCreateRequestBuilder(builder);
                                         }
                                     }
                                 },
@@ -310,42 +352,55 @@ public class RecordVideoActivity extends AppCompatActivity {
         );
     }
 
-    private void startPreview() {
+    private Surface newTextureSurface() {
         if (!textureView.isAvailable() || viewSize == null) {
-            return;
+            return null;
         }
         SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
         if (previewSize != null) {
             surfaceTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
-        } else {
+            bufferSize = new Size(previewSize.getWidth(), previewSize.getHeight());
+        } else {//恐摄像头没有支持的预览大小
             surfaceTexture.setDefaultBufferSize(viewSize.getWidth(), viewSize.getHeight());
+            bufferSize = new Size(viewSize.getWidth(), viewSize.getHeight());
         }
+        configureTransform(textureView.getWidth(), textureView.getHeight());
+        return new Surface(surfaceTexture);
+    }
+
+    private void startPreview() {
         //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
-        Surface previewSurface = new Surface(surfaceTexture);
-        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface));
+        Surface previewSurface = newTextureSurface();
+        if (previewSurface == null)
+            return;
+        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface), null);
+    }
+
+    private void startStillCapture() {
+        Surface stillSurface = newTextureSurface();
+        if (stillSurface == null || bufferSize == null) return;
+        ImageReader imageReader = ImageReader.newInstance(bufferSize.getWidth(), bufferSize.getHeight(), ImageFormat.JPEG, 1);
+        imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
+        newCapture(CameraDevice.TEMPLATE_STILL_CAPTURE, list(stillSurface, imageReader.getSurface()), new SessionCaptureObservable.RequestBuilderInitializer() {
+            @Override
+            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                //设置图片旋转角
+                builder.set(CaptureRequest.JPEG_ORIENTATION, CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
+            }
+        });
     }
 
     private void startRecord() {
-        if (!textureView.isAvailable() || viewSize == null) {
+        //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
+        Surface recordSurface = newTextureSurface();
+        if (recordSurface == null)
             return;
-        }
-        SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
-        if (previewSize != null) {
-            surfaceTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
-        } else {
-            surfaceTexture.setDefaultBufferSize(viewSize.getWidth(), viewSize.getHeight());
-        }
-        Surface recordSurface = new Surface(surfaceTexture);
         mediaRecorder = new MediaRecorder();
         //设置视频的大小
         if (videoSize != null) {
             CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, videoSize.getWidth(), videoSize.getHeight());
         } else {
-            if (previewSize != null) {
-                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, previewSize.getWidth(), previewSize.getHeight());
-            } else {
-                CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, viewSize.getWidth(), viewSize.getHeight());
-            }
+            CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, 640, 480);//就选个最小的吧
         }
         mediaRecorder.setOrientationHint(CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
         try {
@@ -355,7 +410,7 @@ public class RecordVideoActivity extends AppCompatActivity {
             return;
         }
         //a new capture
-        newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()));//must after calling prepare().
+        newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()), null);//must after calling prepare().
         //start recording
         mediaRecorder.start();
     }
@@ -366,9 +421,11 @@ public class RecordVideoActivity extends AppCompatActivity {
                 mediaRecorder.stop();
             } catch (Exception e) {
                 ToastHelper.toast(this, "录制时间太短，录制失败");
+                return;
             }
             mediaRecorder.reset();
             mediaRecorder.release();
+            ToastHelper.toast(RecordVideoActivity.this, "录制完成");
         }
     }
 
@@ -381,7 +438,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         recordVideo.setText("");
-                        ToastHelper.toast(RecordVideoActivity.this, "录制完成");
                         //下面两个方法不能互换，因为MediaPlayer的release方法会释放注册到会话的Surface，这会影响摄像头的正常捕获，导致后续会话无法正常关闭。
                         //所以正确的方法应该先关闭会话，再关闭释放MediaPlayer的资源。
                         startPreview();
@@ -414,7 +470,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         recordVideo.setText("");
-                        ToastHelper.toast(RecordVideoActivity.this, "录制失败");
                         startPreview();
                         stopRecord();
                     }
@@ -425,7 +480,6 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         recordVideo.setText("");
-                        ToastHelper.toast(RecordVideoActivity.this, "录制完成");
                         startPreview();
                         stopRecord();
                     }
@@ -437,24 +491,19 @@ public class RecordVideoActivity extends AppCompatActivity {
      * 横竖屏切换时，需要将原始数据变换后显示在TextureView上
      */
     private void configureTransform(int viewWidth, int viewHeight) {
-        if (null == textureView || null == previewSize) {
+        if (null == textureView || null == bufferSize) {
             return;
         }
-        int rotation = getWindowManager().getDefaultDisplay().getRotation();
         Matrix matrix = new Matrix();
-        RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
-        RectF bufferRect = new RectF(0, 0, previewSize.getHeight(), previewSize.getWidth());
-        float centerX = viewRect.centerX();
-        float centerY = viewRect.centerY();
-        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
-            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
-            float scale = Math.max(
-                    (float) viewHeight / previewSize.getHeight(),
-                    (float) viewWidth / previewSize.getWidth()
-            );
-            matrix.postScale(scale, scale, centerX, centerY);
-            matrix.postRotate(90 * (rotation - 2), centerX, centerY);
+        RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);//TextureView的大小
+        RectF bufferRect = new RectF(0, 0, bufferSize.getHeight(), bufferSize.getWidth());//视频缓冲的大小
+        bufferRect.offset(viewRect.centerX() - bufferRect.centerX(), viewRect.centerY() - bufferRect.centerY());//使两个矩形的中心重合
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);//这里并不需要保持原矩形（也就是视图矩形）的长宽比，而是应该保证视图矩形的长宽比，所以选择Fill模式，具体参考https://blog.csdn.net/cquwentao/article/details/51445269
+        float scale = Math.max(viewRect.height() / bufferRect.height(), viewRect.width() / bufferRect.width());//选大的能铺满屏幕
+        matrix.postScale(scale, scale, viewRect.centerX(), viewRect.centerY());//以视图中心为参考点放大到铺满屏幕
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        if (Surface.ROTATION_0 != rotation) {
+            matrix.postRotate(360f - 90f * rotation, viewRect.centerX(), viewRect.centerY());
         }
         textureView.setTransform(matrix);
     }
@@ -483,6 +532,81 @@ public class RecordVideoActivity extends AppCompatActivity {
         }
     }
 
+    private class ImageAvailable implements ImageReader.OnImageAvailableListener {
+
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            ioSubject.onNext(reader);
+        }
+    }
+
+    private class MainObserver implements Observer<Object> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(Object o) {
+
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+    }
+
+    private class IoObserver implements Observer<ImageReader> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(ImageReader imageReader) {
+            log("new image");
+            Image image = imageReader.acquireNextImage();
+            saveImage(image);
+            image.close();
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+    }
+
+    private void saveImage(Image image) {
+        //处理数据
+        switch (image.getFormat()) {
+            case ImageFormat.JPEG:
+                if (image.getPlanes() != null && image.getPlanes().length > 0) {
+                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                    try {
+                        FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera2_image.jpeg"));
+                        fos.getChannel().write(buffer);
+                        fos.close();
+                    } catch (IOException e) {
+                        ToastHelper.toast(RecordVideoActivity.this, e.getMessage());
+                    }
+                }
+                break;
+        }
+    }
+
     private class TouchListener implements View.OnTouchListener {
 
         GestureDetector gestureDetector = new GestureDetector(RecordVideoActivity.this, new GestureListener());
@@ -504,6 +628,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
+            startStillCapture();//点击拍照
             return true;
         }
 
