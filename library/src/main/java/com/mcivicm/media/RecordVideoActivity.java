@@ -23,6 +23,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.AppCompatImageView;
 import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.util.Pair;
@@ -81,6 +82,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     private VolumeView volumeView;
     private AppCompatTextView recordVideo;
+    private AppCompatImageView switchCamera;
 
     private int sensorOrientation = 0;
     private Size viewSize;//textureView大小
@@ -125,6 +127,22 @@ public class RecordVideoActivity extends AppCompatActivity {
         volumeView = findViewById(R.id.record_button_layout);
         recordVideo = findViewById(R.id.record_button);
         recordVideo.setOnTouchListener(new TouchListener());
+        switchCamera = findViewById(R.id.switch_camera);
+        switchCamera.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (cameraFacing == CameraCharacteristics.LENS_FACING_BACK) {
+                    cameraFacing = CameraCharacteristics.LENS_FACING_FRONT;
+                } else {
+                    cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
+                }
+                //关闭原有的摄像头并置空
+                releaseSession();
+                releaseCamera();
+                cameraDevice = null;
+                newPreview();
+            }
+        });
     }
 
     @Override
