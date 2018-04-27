@@ -1,7 +1,6 @@
 package com.mcivicm.media;
 
 import android.app.Service;
-import android.graphics.Camera;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -33,13 +32,13 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
-import android.view.ViewTreeObserver;
 
 import com.mcivicm.media.camera2.SessionCaptureObservable;
 import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
 import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
+import com.mcivicm.media.camera2.ToastErrorObserver;
 import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
@@ -53,6 +52,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -65,6 +65,8 @@ import io.reactivex.functions.Function;
 import io.reactivex.functions.Function3;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
+
+import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
 /**
  * 录制视频
@@ -85,7 +87,6 @@ public class RecordVideoActivity extends AppCompatActivity {
     private AppCompatImageView switchCamera;
 
     private int sensorOrientation = 0;
-    private Size viewSize;//textureView大小
     private Size previewSize;//预览大小
     private Size videoSize;//视频大小
     private Size bufferSize;//TextureView缓冲大小
@@ -102,17 +103,11 @@ public class RecordVideoActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        extractInstanceState(savedInstanceState);
         initHandler();
         initSubject();
         setContentView(R.layout.activity_record_video);
         textureView = findViewById(R.id.texture_view);
-        textureView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                viewSize = new Size(Math.max(textureView.getWidth(), textureView.getHeight()), Math.min(textureView.getWidth(), textureView.getHeight()));
-                textureView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-            }
-        });
         textureView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -128,31 +123,54 @@ public class RecordVideoActivity extends AppCompatActivity {
         recordVideo = findViewById(R.id.record_button);
         recordVideo.setOnTouchListener(new TouchListener());
         switchCamera = findViewById(R.id.switch_camera);
-        switchCamera.setOnClickListener(new View.OnClickListener() {
+        haveTwoFacing().subscribe(new Observer<Boolean>() {
             @Override
-            public void onClick(View v) {
-                if (cameraFacing == CameraCharacteristics.LENS_FACING_BACK) {
-                    cameraFacing = CameraCharacteristics.LENS_FACING_FRONT;
+            public void onSubscribe(Disposable d) {
+
+            }
+
+            @Override
+            public void onNext(Boolean aBoolean) {
+                if (aBoolean) {
+                    switchCamera.setVisibility(View.VISIBLE);
+                    switchCamera.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            animate(switchCamera).rotationBy(180f).setDuration(300).start();
+                            if (cameraFacing == CameraCharacteristics.LENS_FACING_BACK) {
+                                cameraFacing = CameraCharacteristics.LENS_FACING_FRONT;
+                            } else {
+                                cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
+                            }
+                            //关闭原有的摄像头并置空
+                            releaseSession();
+                            releaseCamera();
+                            cameraDevice = null;
+                            newPreview();
+                        }
+                    });
                 } else {
-                    cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
+                    switchCamera.setVisibility(View.GONE);
                 }
-                //关闭原有的摄像头并置空
-                releaseSession();
-                releaseCamera();
-                cameraDevice = null;
-                newPreview();
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onComplete() {
+
             }
         });
+
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        if (textureView.isAvailable()) {
-            newPreview();
-        } else {
-            textureView.setSurfaceTextureListener(new SurfaceTextureListener());
-        }
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putInt("facing", cameraFacing);
     }
 
     @Override
@@ -170,6 +188,30 @@ public class RecordVideoActivity extends AppCompatActivity {
 
     private CameraManager manager() {
         return (CameraManager) getSystemService(Service.CAMERA_SERVICE);
+    }
+
+    //是否有两面
+    private Observable<Boolean> haveTwoFacing() {
+        return Observable.fromCallable(new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                String[] cameraIdList = manager().getCameraIdList();
+                boolean front = false;
+                boolean back = false;
+                for (String id : cameraIdList) {
+                    CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                    Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
+                    if (facing != null) {
+                        if (facing == CameraMetadata.LENS_FACING_BACK) {
+                            back = true;
+                        } else {
+                            front = true;
+                        }
+                    }
+                }
+                return front && back;
+            }
+        });
     }
 
     //生成一个新的设备
@@ -287,6 +329,10 @@ public class RecordVideoActivity extends AppCompatActivity {
                 });
     }
 
+    private void extractInstanceState(Bundle bundle) {
+        if (bundle == null) return;
+        cameraFacing = bundle.getInt("facing");
+    }
 
     private void initHandler() {
         nonMainThread = new HandlerThread("Camera2");
@@ -377,17 +423,12 @@ public class RecordVideoActivity extends AppCompatActivity {
     }
 
     private Surface newTextureSurface() {
-        if (!textureView.isAvailable() || viewSize == null) {
+        if (!textureView.isAvailable() || previewSize == null) {
             return null;
         }
         SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
-        if (previewSize != null) {
-            surfaceTexture.setDefaultBufferSize(previewSize.getWidth(), previewSize.getHeight());
-            bufferSize = new Size(previewSize.getWidth(), previewSize.getHeight());
-        } else {//恐摄像头没有支持的预览大小
-            surfaceTexture.setDefaultBufferSize(viewSize.getWidth(), viewSize.getHeight());
-            bufferSize = new Size(viewSize.getWidth(), viewSize.getHeight());
-        }
+        bufferSize = new Size(previewSize.getWidth(), previewSize.getHeight());
+        surfaceTexture.setDefaultBufferSize(bufferSize.getWidth(), bufferSize.getHeight());
         configureTransform(textureView.getWidth(), textureView.getHeight());
         return new Surface(surfaceTexture);
     }
@@ -567,7 +608,15 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            newPreview();
+            cameraDevice()//打开摄像头
+                    .observeOn(AndroidSchedulers.mainThread())//因为下面的代码包含给视图赋值的部分
+                    .subscribe(new ToastErrorObserver<CameraDevice>(RecordVideoActivity.this) {
+                        @Override
+                        public void onNext(CameraDevice cameraDevice) {
+                            //开始预览
+                            newPreview();
+                        }
+                    });
         }
 
         @Override
@@ -630,7 +679,7 @@ public class RecordVideoActivity extends AppCompatActivity {
         public void onNext(ImageReader imageReader) {
             log("new image");
             Image image = imageReader.acquireNextImage();
-//            saveImage(image);
+            saveImage(image);
             image.close();
         }
 
@@ -663,13 +712,13 @@ public class RecordVideoActivity extends AppCompatActivity {
             lastTemplate = template;
             switch (template) {
                 case CameraDevice.TEMPLATE_PREVIEW:
-                    Log.d("zhang", "previewing.");
+//                    Log.d("zhang", "previewing.");
                     break;
                 case CameraDevice.TEMPLATE_RECORD:
-                    Log.d("zhang", "recording.");
+//                    Log.d("zhang", "recording.");
                     break;
                 case CameraDevice.TEMPLATE_STILL_CAPTURE:
-                    Log.d("zhang", "still capture");
+//                    Log.d("zhang", "still capture");
                     break;
             }
         }
