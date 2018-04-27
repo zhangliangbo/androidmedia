@@ -106,7 +106,7 @@ public class CameraTwoActivity extends AppCompatActivity {
         extractInstanceState(savedInstanceState);
         initHandler();
         initSubject();
-        setContentView(R.layout.activity_record_video);
+        setContentView(R.layout.activity_camera_two);
         textureView = findViewById(R.id.texture_view);
         textureView.setOnClickListener(new View.OnClickListener() {
             @Override

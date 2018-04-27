@@ -1,15 +1,12 @@
 package com.mcivicm.media;
 
-import android.content.ContentValues;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.hardware.Camera;
 import android.media.MediaRecorder;
-import android.net.Uri;
 import android.os.Bundle;
-import android.provider.MediaStore;
+import android.os.Environment;
 import android.support.annotation.Nullable;
-import android.support.constraint.ConstraintLayout;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
@@ -18,9 +15,6 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
-import android.view.ViewTreeObserver;
-import android.widget.Button;
-import android.widget.TextView;
 
 import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.CameraOneHelper;
@@ -28,9 +22,10 @@ import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.view.VolumeView;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.text.SimpleDateFormat;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -40,6 +35,7 @@ import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
+import io.reactivex.functions.Function3;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
@@ -52,7 +48,7 @@ import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 public class CameraOneActivity extends AppCompatActivity {
 
     private VolumeView recordButtonLayout;
-    private AppCompatTextView start;
+    private AppCompatTextView recordButton;
     private SurfaceView surfaceView;
     private AppCompatTextView switchCamera;
 
@@ -61,75 +57,30 @@ public class CameraOneActivity extends AppCompatActivity {
     private SurfaceHolder surfaceHolder;
     private byte[] buffer;
 
-    private ConstraintLayout pictureOperation;
 
-    private PublishSubject<Object> publishSubject = PublishSubject.create();//发布
-
-    private boolean canRecordAudio = false;
-    private boolean canWriteStorage = false;
+    private PublishSubject<Object> ioSubject = PublishSubject.create();//发布
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_camera_one);
-        if (!publishSubject.hasObservers()) {
-            publishSubject
-                    .observeOn(Schedulers.computation())//特别注意，发送到computation线程，避免主线程拥挤
-                    .subscribe(new SubjectObserver());
+        if (!ioSubject.hasObservers()) {
+            ioSubject
+                    .observeOn(Schedulers.io())//特别注意，发送到computation线程，避免主线程拥挤
+                    .subscribe(new IoObserver());
         }
-        start = findViewById(R.id.record_button);
+        recordButton = findViewById(R.id.record_button);
+        recordButton.setOnTouchListener(new TouchListener());
         recordButtonLayout = findViewById(R.id.record_button_layout);
         surfaceView = findViewById(R.id.surface_view);
-        switchCamera = findViewById(R.id.switch_camera);
-        pictureOperation = findViewById(R.id.picture_operation_layout);
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        permission();
-        pictureOperation.findViewById(R.id.picture_cancel).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                togglePictureOrVideo(true, 150);
-                togglePictureOperation(false, 150);
-                camera.startPreview();
-            }
-        });
-        pictureOperation.findViewById(R.id.picture_confirm).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                togglePictureOrVideo(true, 150);
-                togglePictureOperation(false, 150);
-                camera.startPreview();
-            }
-        });
-        pictureOperation.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                togglePictureOperation(false, 0);
-                pictureOperation.getViewTreeObserver().removeGlobalOnLayoutListener(this);
-            }
-        });
         surfaceView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                togglePictureOrVideo(true, 150);
-                togglePictureOperation(false, 150);
                 camera.startPreview();
             }
         });
-        switchCamera.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (cameraId != -1) {
-                    Camera.CameraInfo info = CameraOneHelper.getInfo(cameraId);
-                    openCameraFacing(info.facing == Camera.CameraInfo.CAMERA_FACING_BACK ? Camera.CameraInfo.CAMERA_FACING_FRONT : Camera.CameraInfo.CAMERA_FACING_BACK);
-                }
-            }
-        });
-        start.setOnTouchListener(new TouchListener());
         surfaceView.getHolder().addCallback(new Callback());
+        switchCamera = findViewById(R.id.switch_camera);
         haveTwoFacingCamera().subscribe(new Observer<Boolean>() {
             @Override
             public void onSubscribe(Disposable d) {
@@ -138,7 +89,21 @@ public class CameraOneActivity extends AppCompatActivity {
 
             @Override
             public void onNext(Boolean aBoolean) {
-                switchCamera.setVisibility(aBoolean ? View.VISIBLE : View.GONE);
+                if (aBoolean) {
+                    switchCamera.setVisibility(View.VISIBLE);
+                    switchCamera.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            animate(switchCamera).rotationBy(180f).setDuration(300).start();
+                            if (cameraId != -1) {
+                                Camera.CameraInfo info = CameraOneHelper.getInfo(cameraId);
+                                openCameraFacing(info.facing == Camera.CameraInfo.CAMERA_FACING_BACK ? Camera.CameraInfo.CAMERA_FACING_FRONT : Camera.CameraInfo.CAMERA_FACING_BACK);
+                            }
+                        }
+                    });
+                } else {
+                    switchCamera.setVisibility(View.GONE);
+                }
             }
 
             @Override
@@ -224,9 +189,9 @@ public class CameraOneActivity extends AppCompatActivity {
         }
     }
 
+    //恐有多个摄像头
     private Observable<Integer> findFirstCameraIdWithFacing(final int facing) {
-        return CameraOneHelper
-                .cameraPermission(CameraOneActivity.this)
+        return permission()
                 .flatMap(new Function<Boolean, ObservableSource<Integer>>() {
                     @Override
                     public ObservableSource<Integer> apply(Boolean aBoolean) throws Exception {
@@ -344,29 +309,21 @@ public class CameraOneActivity extends AppCompatActivity {
         }
     }
 
+    private class PictureData {
+
+        byte[] data;
+
+        PictureData(byte[] data) {
+            this.data = data;
+        }
+    }
+
     private class PictureCallback implements android.hardware.Camera.PictureCallback {
 
         @Override
         public void onPictureTaken(byte[] data, android.hardware.Camera camera) {
-            //data是一个原始的JPEG图像数据，
-            //在这里我们可以存储图片，很显然可以采用MediaStore
-            //注意保存图片后，再次调用startPreview()回到预览
-            Uri imageUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, new ContentValues());
-            try {
-                if (imageUri != null) {
-                    OutputStream os = getContentResolver().openOutputStream(imageUri);
-                    if (os != null) {
-                        os.write(data);
-                        os.flush();
-                        os.close();
-                    }
-                }
-            } catch (Exception e) {
-                //ignore
-            }
+            ioSubject.onNext(new PictureData(data));
             camera.stopPreview();
-            togglePictureOrVideo(false, 150);
-            togglePictureOperation(true, 150);
         }
 
     }
@@ -375,15 +332,15 @@ public class CameraOneActivity extends AppCompatActivity {
 
         @Override
         public void onPreviewFrame(byte[] data, Camera camera) {
-//            publishSubject.onNext(
-//                    new PreviewData(
-//                            camera.getParameters().getPreviewFormat(),
-//                            data,
-//                            camera.getParameters().getPreviewSize().width,
-//                            camera.getParameters().getPreviewSize().height,
-//                            camera.getParameters().getInt("rotation")
-//                    )
-//            );//发送到computation线程处理
+            ioSubject.onNext(
+                    new PreviewData(
+                            camera.getParameters().getPreviewFormat(),
+                            data,
+                            camera.getParameters().getPreviewSize().width,
+                            camera.getParameters().getPreviewSize().height,
+                            camera.getParameters().getInt("rotation")
+                    )
+            );//发送到io线程处理
             camera.addCallbackBuffer(buffer);//每次接收数据后会从队列中移除，所以需要重新添加一遍
         }
     }
@@ -407,7 +364,7 @@ public class CameraOneActivity extends AppCompatActivity {
     }
 
 
-    private class SubjectObserver implements Observer<Object> {
+    private class IoObserver implements Observer<Object> {
 
         Rect rect = new Rect();
 
@@ -441,6 +398,15 @@ public class CameraOneActivity extends AppCompatActivity {
 //                        }
 //                    }
 //                }
+            } else if (o instanceof PictureData) {
+                PictureData pd = (PictureData) o;
+                try {
+                    FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera1_temp_image.jpeg"));
+                    fos.write(pd.data);
+                    fos.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
             }
         }
 
@@ -476,83 +442,76 @@ public class CameraOneActivity extends AppCompatActivity {
             @Override
             public void onLongPress(MotionEvent e) {
                 recordButtonLayout.showEdge();
-                if (disposable != null && !disposable.isDisposed()) {
-                    disposable.dispose();
-                }
-                if (canRecordAudio && canWriteStorage) {
-                    final MediaRecorder mediaRecorder = new MediaRecorder();
-                    //unlock之后获取下面两个参数会挂
-                    int width = camera.getParameters().getPictureSize().width;
-                    int height = camera.getParameters().getPictureSize().height;
-                    camera.lock();
-                    camera.unlock();
-                    mediaRecorder.setCamera(camera);//必须在MediaRecorder一初始化就设置，然后再配置MediaRecorder
-                    MediaRecorderHelper.configureVideoRecorder(mediaRecorder, width, height);
-                    mediaRecorder.setOrientationHint(CameraOneHelper.getDisplayOrientation(CameraOneActivity.this, cameraId));
-                    Observable.intervalRange(0, 10010, 0, 1, TimeUnit.MILLISECONDS)
-                            .doOnDispose(new Action() {
-                                @Override
-                                public void run() throws Exception {
-                                    //"录制结束"
-                                    recordButtonLayout.hideEdge();
-                                    recordButtonLayout.setOrientation(0);
-                                    try {
-                                        mediaRecorder.stop();
-                                        mediaRecorder.release();
-                                        ToastHelper.toast(CameraOneActivity.this, "录制完成");
-                                    } catch (Exception e) {
-                                        ToastHelper.toast(CameraOneActivity.this, "录制时间太短，录制失败");
-                                    }
+                final MediaRecorder mediaRecorder = new MediaRecorder();
+                //unlock之后获取下面两个参数会挂
+                int width = camera.getParameters().getPictureSize().width;
+                int height = camera.getParameters().getPictureSize().height;
+                camera.lock();
+                camera.unlock();
+                mediaRecorder.setCamera(camera);//必须在MediaRecorder一初始化就设置，然后再配置MediaRecorder
+                MediaRecorderHelper.configureVideoRecorder(mediaRecorder, width, height);
+                mediaRecorder.setOrientationHint(CameraOneHelper.getDisplayOrientation(CameraOneActivity.this, cameraId));
+                Observable.intervalRange(0, 10010, 0, 1, TimeUnit.MILLISECONDS)
+                        .doOnDispose(new Action() {
+                            @Override
+                            public void run() throws Exception {
+                                //"录制结束"
+                                recordButtonLayout.hideEdge();
+                                recordButtonLayout.setOrientation(0);
+                                try {
+                                    mediaRecorder.stop();
+                                    mediaRecorder.release();
+                                    ToastHelper.toast(CameraOneActivity.this, "录制完成");
+                                } catch (Exception e) {
+                                    ToastHelper.toast(CameraOneActivity.this, "录制时间太短，录制失败");
                                 }
-                            })
-                            .observeOn(AndroidSchedulers.mainThread())
-                            .subscribe(new Observer<Long>() {
-                                @Override
-                                public void onSubscribe(Disposable d) {
-                                    disposable = d;
-                                    //"开始录制"
-                                    recordButtonLayout.showEdge();
-                                    try {
-                                        mediaRecorder.prepare();
-                                        mediaRecorder.start();
-                                    } catch (Exception ex) {
-                                        //ignore
-                                        ToastHelper.toast(CameraOneActivity.this, ex.getMessage());
-                                    }
+                            }
+                        })
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe(new Observer<Long>() {
+                            @Override
+                            public void onSubscribe(Disposable d) {
+                                disposable = d;
+                                //"开始录制"
+                                recordButtonLayout.showEdge();
+                                try {
+                                    mediaRecorder.prepare();
+                                    mediaRecorder.start();
+                                } catch (Exception ex) {
+                                    //ignore
+                                    ToastHelper.toast(CameraOneActivity.this, ex.getMessage());
                                 }
+                            }
 
-                                @Override
-                                public void onNext(Long aLong) {
-                                    //"录制中"
-                                    int o = (int) (360 * aLong.floatValue() / 10000);
-                                    log(String.valueOf("long:" + aLong + ", o:" + o));
-                                    recordButtonLayout.setOrientation(o);
-                                }
+                            @Override
+                            public void onNext(Long aLong) {
+                                //"录制中"
+                                int o = (int) (360 * aLong.floatValue() / 10000);
+                                log(String.valueOf("long:" + aLong + ", o:" + o));
+                                recordButtonLayout.setOrientation(o);
+                            }
 
-                                @Override
-                                public void onError(Throwable e) {
-                                    //"录制出错"
-                                    recordButtonLayout.hideEdge();
-                                }
+                            @Override
+                            public void onError(Throwable e) {
+                                //"录制出错"
+                                recordButtonLayout.hideEdge();
+                            }
 
-                                @Override
-                                public void onComplete() {
-                                    disposable = null;//这里要置空，否则又会执行一遍dispose()
-                                    //"录制结束"
-                                    recordButtonLayout.hideEdge();
-                                    recordButtonLayout.setOrientation(0);
-                                    try {
-                                        mediaRecorder.stop();
-                                        mediaRecorder.release();
-                                        ToastHelper.toast(CameraOneActivity.this, "录制完成");
-                                    } catch (Exception e) {
-                                        ToastHelper.toast(CameraOneActivity.this, "录制时间太短，录制失败");
-                                    }
+                            @Override
+                            public void onComplete() {
+                                disposable = null;//这里要置空，否则又会执行一遍dispose()
+                                //"录制结束"
+                                recordButtonLayout.hideEdge();
+                                recordButtonLayout.setOrientation(0);
+                                try {
+                                    mediaRecorder.stop();
+                                    mediaRecorder.release();
+                                    ToastHelper.toast(CameraOneActivity.this, "录制完成");
+                                } catch (Exception e) {
+                                    ToastHelper.toast(CameraOneActivity.this, "录制时间太短，录制失败");
                                 }
-                            });
-                } else {
-                    permission();
-                }
+                            }
+                        });
             }
         });
 
@@ -599,67 +558,18 @@ public class CameraOneActivity extends AppCompatActivity {
     }
 
 
-    private void togglePictureOperation(boolean show, long duration) {
-        if (show) {
-            animate(pictureOperation).y(surfaceView.getBottom() - pictureOperation.getHeight()).setDuration(duration).start();
-        } else {
-            animate(pictureOperation).y(surfaceView.getBottom()).setDuration(duration).start();
-        }
-    }
-
-    private void togglePictureOrVideo(boolean show, long duration) {
-        if (show) {
-            animate(recordButtonLayout).y(surfaceView.getBottom() - recordButtonLayout.getHeight() - getResources().getDimensionPixelSize(R.dimen.dp10)).setDuration(duration).start();
-        } else {
-            animate(recordButtonLayout).y(surfaceView.getBottom()).setDuration(duration).start();
-        }
-    }
-
-    private void permission() {
-        AudioRecordHelper.recordAudioPermission(CameraOneActivity.this)
-                .subscribe(new Observer<Boolean>() {
+    private Observable<Boolean> permission() {
+        return Observable.zip(
+                CameraOneHelper.cameraPermission(this),
+                CameraOneHelper.storagePermission(this),
+                AudioRecordHelper.recordAudioPermission(this),
+                new Function3<Boolean, Boolean, Boolean, Boolean>() {
                     @Override
-                    public void onSubscribe(Disposable d) {
-
+                    public Boolean apply(Boolean aBoolean, Boolean aBoolean2, Boolean aBoolean3) throws Exception {
+                        return aBoolean && aBoolean2 && aBoolean3;
                     }
-
-                    @Override
-                    public void onNext(Boolean aBoolean) {
-                        canRecordAudio = aBoolean;
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
-        CameraOneHelper.storagePermission(CameraOneActivity.this)
-                .subscribe(new Observer<Boolean>() {
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Boolean aBoolean) {
-                        canWriteStorage = aBoolean;
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
+                }
+        );
     }
 
 }
