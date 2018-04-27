@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.AppCompatImageView;
 import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.view.GestureDetector;
@@ -50,7 +51,7 @@ public class CameraOneActivity extends AppCompatActivity {
     private VolumeView recordButtonLayout;
     private AppCompatTextView recordButton;
     private SurfaceView surfaceView;
-    private AppCompatTextView switchCamera;
+    private AppCompatImageView switchCamera;
 
     private Camera camera;
     private int cameraId = -1;
@@ -531,30 +532,9 @@ public class CameraOneActivity extends AppCompatActivity {
 
     //拍照
     private void takePicture() {
-        CameraOneHelper.storagePermission(CameraOneActivity.this)
-                .subscribe(new Observer<Boolean>() {
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Boolean aBoolean) {
-                        if (aBoolean) {
-                            camera.takePicture(new ShutterCallback(), null, new PictureCallback());
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-                        ToastHelper.toast(CameraOneActivity.this, e.getMessage());
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
+        if (camera != null) {
+            camera.takePicture(new ShutterCallback(), null, new PictureCallback());
+        }
     }
 
 
