@@ -257,17 +257,11 @@ public class RecordVideoActivity extends AppCompatActivity {
                     public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
                         switch (cameraCaptureSessionSessionStatePair.second) {
                             case Configured:
-                                log("configure");
                                 RecordVideoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
                                 return Observable.just(cameraCaptureSessionSessionStatePair.first);
                             case ConfiguredFailed:
-                                log("configure failed");
                                 RecordVideoActivity.this.cameraCaptureSession = null;
                                 return Observable.error(new Exception("打开会话失败"));
-                            case Closed:
-                                log("close");
-                                RecordVideoActivity.this.cameraCaptureSession = null;
-                                return Observable.empty();
                             default://其他事件过滤
                                 return Observable.empty();
                         }
