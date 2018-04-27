@@ -17,10 +17,6 @@
         </activity>
 
         <activity android:name="com.mcivicm.media.CameraTwoActivity">
-
-        </activity>
-
-        <activity android:name="com.mcivicm.media.RecordVideoActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

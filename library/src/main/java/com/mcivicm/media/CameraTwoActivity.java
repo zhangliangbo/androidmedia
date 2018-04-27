@@ -1,44 +1,45 @@
 package com.mcivicm.media;
 
 import android.app.Service;
-import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
+import android.graphics.RectF;
+import android.graphics.SurfaceTexture;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
-import android.media.MediaCodec;
-import android.media.MediaCodecInfo;
-import android.media.MediaFormat;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.os.Message;
 import android.support.annotation.Nullable;
-import android.support.constraint.Guideline;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.AppCompatImageView;
+import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.util.Pair;
+import android.util.Size;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
+import android.view.TextureView;
 import android.view.View;
-import android.view.ViewTreeObserver;
 
-import com.mcivicm.media.camera2.AvailabilityObservable;
 import com.mcivicm.media.camera2.SessionCaptureObservable;
 import com.mcivicm.media.camera2.SessionState;
 import com.mcivicm.media.camera2.SessionStateObservable;
 import com.mcivicm.media.camera2.State;
 import com.mcivicm.media.camera2.StateObservable;
+import com.mcivicm.media.camera2.ToastErrorObserver;
+import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.CameraOneHelper;
 import com.mcivicm.media.helper.CameraTwoHelper;
 import com.mcivicm.media.helper.ToastHelper;
@@ -51,6 +52,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -60,117 +62,298 @@ import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
 import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
+import io.reactivex.functions.Function3;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 
 import static com.nineoldandroids.view.ViewPropertyAnimator.animate;
 
 /**
- * Camera2 Api Demo
+ * 录制视频
  */
 
 public class CameraTwoActivity extends AppCompatActivity {
 
-    private View pictureOperationLayout;
-    private VolumeView recordVolume;
-    private SurfaceView surfaceView;
-    private Guideline bottomLine;
-    private GestureDetector gestureDetector;
+    private TextureView textureView;//preview
+    private Surface previewSurface;//for previewing
+    private ImageReader imageReader;//preview
+    private MediaRecorder mediaRecorder;//record;
 
-    private CameraManager cameraManager = null;
+    private PublishSubject<Object> mainSubject = PublishSubject.create();//main thread.
+    private PublishSubject<ImageReader> ioSubject = PublishSubject.create();//io thread.
+
+    private VolumeView volumeView;
+    private AppCompatTextView recordVideo;
+    private AppCompatImageView switchCamera;
+
+    private int sensorOrientation = 0;
+    private Size previewSize;//预览大小
+    private Size videoSize;//视频大小
+    private Size bufferSize;//TextureView缓冲大小
+
+    private Handler nonMainHandler;
+    private HandlerThread nonMainThread;
+    private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
-    private String cameraId;
     private CameraCaptureSession cameraCaptureSession;
+    private int lastTemplate = CameraDevice.TEMPLATE_PREVIEW;
 
-    //数据接收器
-    private SurfaceHolder surfaceHolder;//存放预览数据
-    private ImageReader imageReader;//存放图片数据
-    private MediaCodec mediaCodec;//存放视频的位置
-    //数据发射器
-    private PublishSubject<Object> mainSubject = PublishSubject.create();
-    private PublishSubject<ImageReader> ioSubject = PublishSubject.create();
-    //摄像头操作线程
-    private Handler nonMainHandler = null;
-    //录制视频数据源
-    private Disposable recordVideoDisposable = null;
+    private Disposable recordDisposable;
 
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        extractInstanceState(savedInstanceState);
         initHandler();
         initSubject();
-        setContentView(R.layout.activity_camera_two);
-        pictureOperationLayout = findViewById(R.id.picture_operation_layout);
-        pictureOperationLayout.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                togglePictureOperation(false, 0);
-                pictureOperationLayout.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-            }
-        });
-        bottomLine = findViewById(R.id.bottom_line);
-        cameraManager = (CameraManager) getSystemService(Service.CAMERA_SERVICE);
-        recordVolume = findViewById(R.id.record_button_layout);
-        surfaceView = findViewById(R.id.surface_view);
-        surfaceView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override
-            public void onGlobalLayout() {
-                imageReader = newImageReader(surfaceView.getWidth(), surfaceView.getHeight());
-                mediaCodec = newMediaCodec(surfaceView.getWidth(), surfaceView.getHeight());
-                surfaceView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-            }
-        });
-        surfaceView.getHolder().addCallback(new Callback());
-        surfaceView.setOnClickListener(new View.OnClickListener() {
+        setContentView(R.layout.activity_record_video);
+        textureView = findViewById(R.id.texture_view);
+        textureView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startPreview(surfaceHolder.getSurface());
-                togglePictureOperation(false, 150);
+                if (lastTemplate == CameraDevice.TEMPLATE_RECORD) {
+                    newPreview();
+                } else {
+                    preview();
+                }
             }
         });
-        gestureDetector = new GestureDetector(this, new GestureListener());
-        findViewById(R.id.record_button).setOnTouchListener(new RecordTouchListener());
-        findViewById(R.id.picture_cancel).setOnClickListener(new View.OnClickListener() {
+        textureView.setSurfaceTextureListener(new SurfaceTextureListener());
+        volumeView = findViewById(R.id.record_button_layout);
+        recordVideo = findViewById(R.id.record_button);
+        recordVideo.setOnTouchListener(new TouchListener());
+        switchCamera = findViewById(R.id.switch_camera);
+        haveTwoFacing().subscribe(new Observer<Boolean>() {
             @Override
-            public void onClick(View v) {
-                startPreview(surfaceHolder.getSurface());
-                togglePictureOperation(false, 150);
+            public void onSubscribe(Disposable d) {
+
             }
-        });
-        findViewById(R.id.picture_confirm).setOnClickListener(new View.OnClickListener() {
+
             @Override
-            public void onClick(View v) {
-                startPreview(surfaceHolder.getSurface());
-                togglePictureOperation(false, 150);
+            public void onNext(Boolean aBoolean) {
+                if (aBoolean) {
+                    switchCamera.setVisibility(View.VISIBLE);
+                    switchCamera.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            animate(switchCamera).rotationBy(180f).setDuration(300).start();
+                            if (cameraFacing == CameraCharacteristics.LENS_FACING_BACK) {
+                                cameraFacing = CameraCharacteristics.LENS_FACING_FRONT;
+                            } else {
+                                cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
+                            }
+                            //关闭原有的摄像头并置空
+                            releaseSession();
+                            releaseCamera();
+                            cameraDevice = null;
+                            newPreview();
+                        }
+                    });
+                } else {
+                    switchCamera.setVisibility(View.GONE);
+                }
+            }
+
+            @Override
+            public void onError(Throwable e) {
+
+            }
+
+            @Override
+            public void onComplete() {
+
             }
         });
+
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putInt("facing", cameraFacing);
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        releaseSession();
+        releaseCamera();
+        releaseHandler();
+        releaseSubject();
     }
 
-    private ImageReader newImageReader(int width, int height) {
-        ImageReader imageReader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
-        imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
-        return imageReader;
+    private void log(String s) {
+        Log.d("zhang", s);
     }
 
-    private MediaCodec newMediaCodec(int width, int height) {
-        try {
-            MediaFormat format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_MPEG4, width, height);
-            format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            format.setInteger(MediaFormat.KEY_BIT_RATE, 5 * width * height);
-            format.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
-            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 5);
-            format.setInteger(MediaFormat.KEY_ROTATION, 90);
-            format.setInteger(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1000 / 30);
-            MediaCodec mediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_MPEG4);
-            mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            return mediaCodec;
-        } catch (IOException e) {
-            return null;
+    private CameraManager manager() {
+        return (CameraManager) getSystemService(Service.CAMERA_SERVICE);
+    }
+
+    //是否有两面
+    private Observable<Boolean> haveTwoFacing() {
+        return Observable.fromCallable(new Callable<Boolean>() {
+            @Override
+            public Boolean call() throws Exception {
+                String[] cameraIdList = manager().getCameraIdList();
+                boolean front = false;
+                boolean back = false;
+                for (String id : cameraIdList) {
+                    CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                    Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
+                    if (facing != null) {
+                        if (facing == CameraMetadata.LENS_FACING_BACK) {
+                            back = true;
+                        } else {
+                            front = true;
+                        }
+                    }
+                }
+                return front && back;
+            }
+        });
+    }
+
+    //生成一个新的设备
+    private Observable<CameraDevice> newCameraDevice() {
+        return permission()//申请权限
+                .flatMap(new Function<Boolean, ObservableSource<String>>() {
+                    @Override
+                    public ObservableSource<String> apply(Boolean aBoolean) throws Exception {
+                        if (aBoolean) {
+                            String[] cameraIdList = manager().getCameraIdList();
+                            for (String id : cameraIdList) {
+                                CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                                //图片摆正需要顺时针旋转的方位角
+                                Integer so = cc.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                                if (so != null) {
+                                    sensorOrientation = so;
+                                }
+                                //大小
+                                StreamConfigurationMap map = cc.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+                                if (map != null) {
+                                    videoSize = CameraTwoHelper.chooseVideoSize(
+                                            map.getOutputSizes(MediaRecorder.class),
+                                            Math.max(textureView.getWidth(), textureView.getHeight()),
+                                            Math.min(textureView.getWidth(), textureView.getHeight())
+                                    );
+                                    previewSize = CameraTwoHelper.choosePreviewSize(map.getOutputSizes(SurfaceTexture.class));
+                                }
+                                //摄像头的朝向
+                                Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
+                                if (facing != null) {
+                                    if (facing == cameraFacing) {
+                                        return Observable.just(id);
+                                    }
+                                }
+                            }
+                            return Observable.error(new Exception(cameraFacing == CameraCharacteristics.LENS_FACING_BACK ? "未找到后置摄像头" : "未找到前置摄像头"));
+                        } else {
+                            return Observable.empty();
+                        }
+                    }
+                })
+                .flatMap(new Function<String, ObservableSource<Pair<CameraDevice, State>>>() {
+                    @Override
+                    public ObservableSource<Pair<CameraDevice, State>> apply(String id) throws Exception {
+                        return new StateObservable(manager(), id, nonMainHandler);//一旦打开摄像头，马上会收到摄像头被占用的通知
+                    }
+                })
+                .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<CameraDevice>>() {
+                    @Override
+                    public ObservableSource<CameraDevice> apply(Pair<CameraDevice, State> cameraDeviceStatePair) throws Exception {
+                        switch (cameraDeviceStatePair.second) {
+                            case Open:
+                                CameraTwoActivity.this.cameraDevice = cameraDeviceStatePair.first;//给类范围变量赋个值
+                                return Observable.just(cameraDeviceStatePair.first);
+                            default:
+                                CameraTwoActivity.this.cameraDevice = null;
+                                return Observable.empty();//通道关闭或失联，仅赋值，不传给下游
+                        }
+                    }
+                });
+    }
+
+    private void releaseSession() {
+        if (cameraCaptureSession != null) {
+            cameraCaptureSession.close();
+        }
+    }
+
+    //释放摄像头
+    private void releaseCamera() {
+        if (cameraDevice != null) {
+            cameraDevice.close();
+        }
+    }
+
+    //打开摄像头
+    private Observable<CameraDevice> cameraDevice() {
+        if (cameraDevice == null) {
+            return newCameraDevice();
+        } else {
+            return Observable.just(cameraDevice);
+        }
+    }
+
+    private List<Surface> list(Surface... surfaces) {
+        List<Surface> list = new ArrayList<>();
+        Collections.addAll(list, surfaces);
+        return list;
+    }
+
+
+    //生成一个新的捕捉会话，新建捕捉会话会关闭原来的会话，因为摄像头一次只能开启一个会话
+    private Observable<CameraCaptureSession> newCaptureSession(final List<Surface> list) {
+        return cameraDevice()
+                .flatMap(new Function<CameraDevice, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
+                    @Override
+                    public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(CameraDevice cameraDevice) throws Exception {
+                        return new SessionStateObservable(cameraDevice, list, nonMainHandler);
+                    }
+                })
+                .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<CameraCaptureSession>>() {
+                    @Override
+                    public ObservableSource<CameraCaptureSession> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSessionSessionStatePair) throws Exception {
+                        switch (cameraCaptureSessionSessionStatePair.second) {
+                            case Configured:
+                                CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSessionSessionStatePair.first;
+                                return Observable.just(cameraCaptureSessionSessionStatePair.first);
+                            case ConfiguredFailed:
+                                CameraTwoActivity.this.cameraCaptureSession = null;
+                                return Observable.error(new Exception("打开会话失败"));
+                            default://其他事件过滤
+                                return Observable.empty();
+                        }
+                    }
+                });
+    }
+
+    private void extractInstanceState(Bundle bundle) {
+        if (bundle == null) return;
+        cameraFacing = bundle.getInt("facing");
+    }
+
+    private void initHandler() {
+        nonMainThread = new HandlerThread("Camera2");
+        nonMainThread.start();
+        nonMainHandler = new Handler(nonMainThread.getLooper());
+    }
+
+    private void releaseHandler() {
+        nonMainThread.quitSafely();
+    }
+
+    private void initSubject() {
+        if (!mainSubject.hasObservers()) {
+            mainSubject
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(new MainObserver());
+        }
+        if (!ioSubject.hasObservers()) {
+            ioSubject
+                    .observeOn(Schedulers.io())
+                    .subscribe(new IoObserver());
         }
     }
 
@@ -179,176 +362,167 @@ public class CameraTwoActivity extends AppCompatActivity {
             try {
                 cameraCaptureSession.stopRepeating();
             } catch (CameraAccessException e) {
-                ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+                //ignore.
             }
         }
     }
 
-    //打开摄像头会话
-    private Observable<Pair<CameraCaptureSession, SessionState>> session() {
-        return CameraOneHelper.cameraPermission(CameraTwoActivity.this)
-                .flatMap(new Function<Boolean, ObservableSource<Pair<String, Boolean>>>() {
+    private void releaseSubject() {
+        mainSubject.onComplete();
+        ioSubject.onComplete();
+    }
+
+    //用新的会话新建捕捉
+    private void newCapture(final int captureTemplate, final List<Surface> surfaceList, final SessionCaptureObservable.RequestBuilderInitializer initializer) {
+        newCaptureSession(surfaceList)
+                .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
-                    public ObservableSource<Pair<String, Boolean>> apply(Boolean aBoolean) throws Exception {
-                        return new AvailabilityObservable(cameraManager);
+                    public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
+                        return new SessionCaptureObservable(
+                                cameraCaptureSession,
+                                captureTemplate,
+                                initializer,
+                                nonMainHandler);
                     }
                 })
-                .flatMap(new Function<Pair<String, Boolean>, ObservableSource<Pair<CameraDevice, State>>>() {
+                .subscribe(new CaptureResultObserver(captureTemplate));
+    }
+
+    //使用现有会话捕捉图像
+    private void capture(final int captureTemplate, final SessionCaptureObservable.RequestBuilderInitializer initializer) {
+        if (cameraCaptureSession == null) {
+            return;
+        }
+        Observable.just(cameraCaptureSession)
+                .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
-                    public ObservableSource<Pair<CameraDevice, State>> apply(Pair<String, Boolean> availability) throws Exception {
-                        if (availability.second) {
-                            CameraTwoActivity.this.cameraId = availability.first;
-                            return new StateObservable(cameraManager, availability.first, nonMainHandler);
-                        } else {
-                            return Observable.empty();
-                        }
+                    public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
+                        return new SessionCaptureObservable(
+                                cameraCaptureSession,
+                                captureTemplate,
+                                initializer,
+                                nonMainHandler);
                     }
                 })
-                .flatMap(new Function<Pair<CameraDevice, State>, ObservableSource<Pair<CameraCaptureSession, SessionState>>>() {
+                .subscribe(new CaptureResultObserver(captureTemplate));
+    }
+
+    //请求权限
+    private Observable<Boolean> permission() {
+        return Observable.zip(
+                CameraOneHelper.cameraPermission(this),
+                CameraOneHelper.storagePermission(this),
+                AudioRecordHelper.recordAudioPermission(this),
+                new Function3<Boolean, Boolean, Boolean, Boolean>() {
                     @Override
-                    public ObservableSource<Pair<CameraCaptureSession, SessionState>> apply(Pair<CameraDevice, State> state) throws Exception {
-                        switch (state.second) {
-                            case Open:
-                                CameraTwoActivity.this.cameraDevice = state.first;
-                                return new SessionStateObservable(cameraDevice, toList(surfaceHolder.getSurface(), imageReader.getSurface()), nonMainHandler);//往会话中加入两个Surface
-                            default:
-                                return Observable.empty();
-                        }
+                    public Boolean apply(Boolean aBoolean, Boolean aBoolean2, Boolean aBoolean3) throws Exception {
+                        return aBoolean && aBoolean2 && aBoolean3;
+                    }
+                }
+        );
+    }
+
+    private Surface newTextureSurface() {
+        if (!textureView.isAvailable() || previewSize == null) {
+            return null;
+        }
+        SurfaceTexture surfaceTexture = textureView.getSurfaceTexture();
+        bufferSize = new Size(previewSize.getWidth(), previewSize.getHeight());
+        surfaceTexture.setDefaultBufferSize(bufferSize.getWidth(), bufferSize.getHeight());
+        configureTransform(textureView.getWidth(), textureView.getHeight());
+        return new Surface(surfaceTexture);
+    }
+
+    private void newPreview() {
+        //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
+        previewSurface = newTextureSurface();
+        if (previewSurface == null || bufferSize == null)
+            return;
+        //释放已有资源
+        if (imageReader != null) {
+            imageReader.close();
+        }
+        imageReader = ImageReader.newInstance(bufferSize.getWidth(), bufferSize.getHeight(), ImageFormat.JPEG, 1);
+        imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
+        newCapture(
+                CameraDevice.TEMPLATE_PREVIEW,
+                list(previewSurface, imageReader.getSurface()),//注册两个Surface.
+                new SessionCaptureObservable.RequestBuilderInitializer() {
+                    @Override
+                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                        builder.addTarget(previewSurface);//预览的时候只用一个Surface.
                     }
                 });
     }
 
-    //开始预览
-    private void startPreview(final Surface... surfaces) {
-        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
+    private void preview() {
+        //使用现有Session预览
+        capture(CameraDevice.TEMPLATE_PREVIEW, new SessionCaptureObservable.RequestBuilderInitializer() {
             @Override
             public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                if (surfaces != null) {
-                    for (Surface surface : surfaces) {
-                        builder.addTarget(surface);
-                    }
-                }
+                builder.addTarget(previewSurface);//使用现有Surface预览（没有主动关闭或者新建Session，Surface一般是存在的）
             }
-        };
-        if (this.cameraCaptureSession == null) {
-            session()
-                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
-                        @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
-                            switch (cameraCaptureSession.second) {
-                                case Configured:
-                                    CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession.first;
-                                    return new SessionCaptureObservable(
-                                            cameraCaptureSession.first,
-                                            CameraDevice.TEMPLATE_PREVIEW,
-                                            initializer,
-                                            nonMainHandler);
-                                default:
-                                    return Observable.empty();
-                            }
-                        }
-                    })
-                    .subscribe(new CaptureObserver());
-        } else {
-            new SessionCaptureObservable(
-                    cameraCaptureSession,
-                    CameraDevice.TEMPLATE_PREVIEW,
-                    initializer,
-                    nonMainHandler)
-                    .subscribe(new CaptureObserver());
-        }
+        });
     }
 
-    //开始采集图片
-    private void startStillCapture(final Surface... surfaces) {
-        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
+    private void stillCapture() {
+        //使用现有的Session捕获图片
+        capture(CameraDevice.TEMPLATE_STILL_CAPTURE, new SessionCaptureObservable.RequestBuilderInitializer() {
             @Override
             public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                builder.set(CaptureRequest.JPEG_QUALITY, (byte) 100);
-                //图片的旋转角
-                try {
-                    builder.set(CaptureRequest.JPEG_ORIENTATION, CameraTwoHelper.getPictureRotation(cameraManager, cameraId, 0));
-                } catch (CameraAccessException e) {
-                    //ignore
-                }
-                if (surfaces != null) {
-                    for (Surface surface : surfaces) {
-                        builder.addTarget(surface);
-                    }
-                }
+                builder.addTarget(imageReader.getSurface());
+                builder.set(CaptureRequest.JPEG_ORIENTATION, CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
             }
-        };
-        if (this.cameraCaptureSession == null) {
-            session()
-                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
-                        @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(final Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
-                            switch (cameraCaptureSession.second) {
-                                case Configured:
-                                    CameraTwoActivity.this.cameraCaptureSession = cameraCaptureSession.first;
-                                    return new SessionCaptureObservable(
-                                            cameraCaptureSession.first,
-                                            CameraDevice.TEMPLATE_STILL_CAPTURE,
-                                            initializer,
-                                            nonMainHandler);
-                                default:
-                                    return Observable.empty();
-                            }
-
-                        }
-                    })
-                    .subscribe(new CaptureObserver());
-        } else {
-            new SessionCaptureObservable(
-                    cameraCaptureSession,
-                    CameraDevice.TEMPLATE_STILL_CAPTURE,
-                    initializer,
-                    nonMainHandler)
-                    .subscribe(new CaptureObserver());
-        }
+        });
     }
 
-    //开始录制视频
-    private void startRecord(final Surface... surfaces) {
-        final SessionCaptureObservable.RequestBuilderInitializer initializer = new SessionCaptureObservable.RequestBuilderInitializer() {
-            @Override
-            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                if (surfaces != null) {
-                    for (Surface surface : surfaces) {
-                        builder.addTarget(surface);
-                    }
-                }
-            }
-        };
-        if (this.cameraCaptureSession == null) {
-            session()
-                    .flatMap(new Function<Pair<CameraCaptureSession, SessionState>, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
-                        @Override
-                        public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(Pair<CameraCaptureSession, SessionState> cameraCaptureSession) throws Exception {
-                            switch (cameraCaptureSession.second) {
-                                case Configured:
-                                    return new SessionCaptureObservable(
-                                            cameraCaptureSession.first,
-                                            CameraDevice.TEMPLATE_RECORD,
-                                            initializer,
-                                            nonMainHandler);
-                                default:
-                                    return Observable.empty();
-                            }
-
-                        }
-                    })
-                    .subscribe(new CaptureObserver());
+    private void newRecord() {
+        //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
+        final Surface recordSurface = newTextureSurface();
+        if (recordSurface == null)
+            return;
+        mediaRecorder = new MediaRecorder();
+        //设置视频的大小
+        if (videoSize != null) {
+            CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, videoSize.getWidth(), videoSize.getHeight());
         } else {
-            new SessionCaptureObservable(
-                    cameraCaptureSession,
-                    CameraDevice.TEMPLATE_RECORD,
-                    initializer,
-                    nonMainHandler)
-                    .subscribe(new CaptureObserver());
+            CameraTwoHelper.configureVideoMediaRecorder(mediaRecorder, 640, 480);//就选个最小的吧
         }
+        mediaRecorder.setOrientationHint(CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
+        try {
+            mediaRecorder.prepare();
+        } catch (IOException e) {
+            ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+            return;
+        }
+        //a new capture
+        newCapture(
+                CameraDevice.TEMPLATE_RECORD,
+                list(recordSurface, mediaRecorder.getSurface()),
+                new SessionCaptureObservable.RequestBuilderInitializer() {
+                    @Override
+                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                        builder.addTarget(recordSurface);
+                        builder.addTarget(mediaRecorder.getSurface());
+                    }
+                });//must after calling prepare().
+        //start recording
+        mediaRecorder.start();
     }
 
+    private void stopRecord() {
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder.stop();
+            } catch (Exception e) {
+                ToastHelper.toast(this, "录制时间太短，录制失败");
+                return;
+            }
+            mediaRecorder.reset();
+            mediaRecorder.release();
+            ToastHelper.toast(CameraTwoActivity.this, "录制完成");
+        }
+    }
 
     private void recordVideo() {
         Observable.intervalRange(0, 10020, 0, 1, TimeUnit.MILLISECONDS)
@@ -356,93 +530,250 @@ public class CameraTwoActivity extends AppCompatActivity {
                 .doOnDispose(new Action() {
                     @Override
                     public void run() throws Exception {
-                        recordVolume.hideEdge();
-                        recordVolume.setOrientation(0);
-                        startPreview(surfaceHolder.getSurface());
-                        ToastHelper.toast(CameraTwoActivity.this, "录制成功");
+                        volumeView.hideEdge();
+                        volumeView.setOrientation(0);
+                        recordVideo.setText("");
+                        //下面两个方法不能互换，因为MediaPlayer的release方法会释放注册到会话的Surface，这会影响摄像头的正常捕获，导致后续会话无法正常关闭。
+                        //所以正确的方法应该先关闭会话，再关闭释放MediaPlayer的资源。
+                        newPreview();
+                        stopRecord();
                     }
                 })
-                .subscribe(new Observer<Long>() {
+                .subscribe(new io.reactivex.Observer<Long>() {
                     @Override
                     public void onSubscribe(Disposable d) {
-                        recordVideoDisposable = d;
-                        recordVolume.showEdge();
-                        recordVolume.setOrientation(0);
-                        startRecord(surfaceHolder.getSurface());
+
+                        recordDisposable = d;
+
+                        volumeView.showEdge();
+                        volumeView.setOrientation(0);
+                        recordVideo.setText("");
+
+                        //开始录制视频
+                        newRecord();
                     }
 
                     @Override
                     public void onNext(Long aLong) {
-                        recordVolume.setOrientation((int) (360 * aLong.floatValue() / 10000));
+                        volumeView.setOrientation((int) (360 * aLong.floatValue() / 10000));
+                        recordVideo.setText(String.valueOf(aLong.intValue() / 1000));
                     }
 
                     @Override
                     public void onError(Throwable e) {
-                        recordVolume.hideEdge();
-                        recordVolume.setOrientation(0);
-                        startPreview(surfaceHolder.getSurface());
-                        ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+                        recordDisposable = null;
+                        volumeView.hideEdge();
+                        volumeView.setOrientation(0);
+                        recordVideo.setText("");
+                        newPreview();
+                        stopRecord();
                     }
 
                     @Override
                     public void onComplete() {
-                        recordVolume.hideEdge();
-                        recordVolume.setOrientation(0);
-                        startPreview(surfaceHolder.getSurface());
-                        ToastHelper.toast(CameraTwoActivity.this, "录制成功");
+                        recordDisposable = null;
+                        volumeView.hideEdge();
+                        volumeView.setOrientation(0);
+                        recordVideo.setText("");
+                        newPreview();
+                        stopRecord();
                     }
                 });
     }
 
-    //显示和隐藏图片操作栏
-    private void togglePictureOperation(boolean show, long duration) {
-        if (show) {
-            animate(pictureOperationLayout).y(bottomLine.getBottom() - pictureOperationLayout.getHeight()).setDuration(duration).start();
-        } else {
-            animate(pictureOperationLayout).y(bottomLine.getBottom()).setDuration(duration).start();
+
+    /**
+     * 横竖屏切换时，需要将原始数据变换后显示在TextureView上
+     */
+    private void configureTransform(int viewWidth, int viewHeight) {
+        if (null == textureView || null == bufferSize) {
+            return;
+        }
+        Matrix matrix = new Matrix();
+        RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);//TextureView的大小
+        RectF bufferRect = new RectF(0, 0, bufferSize.getHeight(), bufferSize.getWidth());//视频缓冲的大小
+        bufferRect.offset(viewRect.centerX() - bufferRect.centerX(), viewRect.centerY() - bufferRect.centerY());//使两个矩形的中心重合
+        matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);//这里并不需要保持原矩形（也就是视图矩形）的长宽比，而是应该保证视图矩形的长宽比，所以选择Fill模式，具体参考https://blog.csdn.net/cquwentao/article/details/51445269
+        float scale = Math.max(viewRect.height() / bufferRect.height(), viewRect.width() / bufferRect.width());//选大的能铺满屏幕
+        matrix.postScale(scale, scale, viewRect.centerX(), viewRect.centerY());//以视图中心为参考点放大到铺满屏幕
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        if (Surface.ROTATION_0 != rotation) {
+            matrix.postRotate(360f - 90f * rotation, viewRect.centerX(), viewRect.centerY());
+        }
+        textureView.setTransform(matrix);
+    }
+
+    //表面纹理监听器
+    private class SurfaceTextureListener implements TextureView.SurfaceTextureListener {
+
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+            cameraDevice()//打开摄像头
+                    .observeOn(AndroidSchedulers.mainThread())//因为下面的代码包含给视图赋值的部分
+                    .subscribe(new ToastErrorObserver<CameraDevice>(CameraTwoActivity.this) {
+                        @Override
+                        public void onNext(CameraDevice cameraDevice) {
+                            //开始预览
+                            newPreview();
+                        }
+                    });
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+            return true;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+
         }
     }
 
-    private void log(String s) {
-        Log.d("zhang", s);
-    }
+    private class ImageAvailable implements ImageReader.OnImageAvailableListener {
 
-    private List<Surface> toList(Surface... surfaces) {
-        List<Surface> list = new ArrayList<>();
-        if (surfaces != null && surfaces.length > 0) {
-            Collections.addAll(list, surfaces);
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            log("available");
+            stopRepeating();
+            ioSubject.onNext(reader);
         }
-        return list;
     }
 
-    private void initHandler() {
-        HandlerThread handlerThread = new HandlerThread("Camera2");
-        handlerThread.start();
-        nonMainHandler = new Handler(handlerThread.getLooper(), new Handler.Callback() {
-            @Override
-            public boolean handleMessage(Message msg) {
-                return false;
+    private class MainObserver implements Observer<Object> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(Object o) {
+
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+    }
+
+    private class IoObserver implements Observer<ImageReader> {
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(ImageReader imageReader) {
+            log("new image");
+            Image image = imageReader.acquireNextImage();
+            saveImage(image);
+            image.close();
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+    }
+
+    private class CaptureResultObserver implements Observer<Pair<Integer, ? extends CameraMetadata>> {
+
+        private int template = 0;
+
+        CaptureResultObserver(int template) {
+            this.template = template;
+        }
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
+            lastTemplate = template;
+            switch (template) {
+                case CameraDevice.TEMPLATE_PREVIEW:
+//                    Log.d("zhang", "previewing.");
+                    break;
+                case CameraDevice.TEMPLATE_RECORD:
+//                    Log.d("zhang", "recording.");
+                    break;
+                case CameraDevice.TEMPLATE_STILL_CAPTURE:
+//                    Log.d("zhang", "still capture");
+                    break;
             }
-        });
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
     }
 
-    private void initSubject() {
-        if (!mainSubject.hasObservers()) {
-            mainSubject
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(new MainThreadObserver());
+    private void saveImage(Image image) {
+        //处理数据
+        switch (image.getFormat()) {
+            case ImageFormat.JPEG:
+                if (image.getPlanes() != null && image.getPlanes().length > 0) {
+                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                    try {
+                        FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera2_temp_image.jpeg"));
+                        fos.getChannel().write(buffer);
+                        fos.close();
+                    } catch (IOException e) {
+                        ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
+                    }
+                }
+                break;
         }
-        if (!ioSubject.hasObservers()) {
-            ioSubject
-                    .observeOn(Schedulers.io())
-                    .subscribe(new IoThreadObserver());
+    }
+
+    private class TouchListener implements View.OnTouchListener {
+
+        GestureDetector gestureDetector = new GestureDetector(CameraTwoActivity.this, new GestureListener());
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            gestureDetector.onTouchEvent(event);
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_UP:
+                    if (recordDisposable != null && !recordDisposable.isDisposed()) {
+                        recordDisposable.dispose();
+                    }
+                    break;
+            }
+            return true;
         }
     }
 
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            startStillCapture(imageReader.getSurface());
+            stillCapture();//点击拍照
             return true;
         }
 
@@ -453,176 +784,4 @@ public class CameraTwoActivity extends AppCompatActivity {
     }
 
 
-    private class RecordTouchListener implements View.OnTouchListener {
-
-        @Override
-        public boolean onTouch(View v, MotionEvent event) {
-            gestureDetector.onTouchEvent(event);
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_UP:
-                    if (recordVideoDisposable != null && !recordVideoDisposable.isDisposed()) {
-                        recordVideoDisposable.dispose();
-                    }
-                    break;
-            }
-            return true;
-        }
-    }
-
-    private enum Notification {
-        HidePictureOperation, ShowPictureOperation
-    }
-
-    //Io线程观察者
-    private class IoThreadObserver implements Observer<ImageReader> {
-
-        @Override
-        public void onSubscribe(Disposable d) {
-
-        }
-
-        @Override
-        public void onNext(ImageReader imageReader) {
-            Image image = imageReader.acquireNextImage();
-            switch (image.getFormat()) {
-                case ImageFormat.JPEG:
-                    if (image.getPlanes() != null && image.getPlanes().length > 0) {
-                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        try {
-                            FileOutputStream fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), "camera2_temp_image.jpeg"));
-                            fos.getChannel().write(buffer);
-                            fos.close();
-                        } catch (IOException e) {
-                            ToastHelper.toast(CameraTwoActivity.this, e.getMessage());
-                        }
-                    }
-                    break;
-            }
-            image.close();//记得close()，为下一次做准备
-        }
-
-        @Override
-        public void onError(Throwable e) {
-
-        }
-
-        @Override
-        public void onComplete() {
-
-        }
-
-        Bitmap rotateBitmap(Bitmap bitmap, int degree) {
-            Matrix matrix = new Matrix();
-            matrix.postRotate(degree);
-            Bitmap rotate = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
-            if (!bitmap.isRecycled()) {
-                bitmap.recycle();
-            }
-            return rotate;
-        }
-    }
-
-    //主线程观察者
-    private class MainThreadObserver implements Observer<Object> {
-
-        @Override
-        public void onSubscribe(Disposable d) {
-
-        }
-
-        @Override
-        public void onNext(Object o) {
-            if (o instanceof Notification) {
-                switch ((Notification) o) {
-                    case HidePictureOperation:
-                        startPreview(surfaceHolder.getSurface());
-                        togglePictureOperation(false, 150);
-                        break;
-                    case ShowPictureOperation:
-                        togglePictureOperation(true, 150);
-                        break;
-                }
-            }
-        }
-
-        @Override
-        public void onError(Throwable e) {
-
-        }
-
-        @Override
-        public void onComplete() {
-
-        }
-    }
-
-    private class CaptureObserver implements Observer<Pair<Integer, ? extends CameraMetadata>> {
-
-        @Override
-        public void onSubscribe(Disposable d) {
-
-        }
-
-        @Override
-        public void onNext(Pair<Integer, ? extends CameraMetadata> captureRequestPair) {
-            int template = captureRequestPair.first;
-            switch (template) {
-                case CameraDevice.TEMPLATE_PREVIEW:
-                    log("previewing.");
-                    break;
-                case CameraDevice.TEMPLATE_STILL_CAPTURE:
-                    log("still.");
-                    break;
-                case CameraDevice.TEMPLATE_RECORD:
-                    log("recording.");
-                    break;
-            }
-        }
-
-        @Override
-        public void onError(Throwable e) {
-
-        }
-
-        @Override
-        public void onComplete() {
-
-        }
-    }
-
-    private class ImageAvailable implements ImageReader.OnImageAvailableListener {
-
-        @Override
-        public void onImageAvailable(ImageReader reader) {
-            stopRepeating();
-            mainSubject.onNext(Notification.ShowPictureOperation);
-            ioSubject.onNext(reader);
-        }
-
-    }
-
-    private class Callback implements SurfaceHolder.Callback {
-
-        @Override
-        public void surfaceCreated(final SurfaceHolder holder) {
-            surfaceHolder = holder;
-            startPreview(mediaCodec.createInputSurface());
-        }
-
-        @Override
-        public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            surfaceHolder = holder;
-        }
-
-        @Override
-        public void surfaceDestroyed(SurfaceHolder holder) {
-            surfaceHolder = holder;
-            if (cameraCaptureSession != null) {
-                cameraCaptureSession.close();
-            }
-            if (cameraDevice != null) {
-                cameraDevice.close();
-            }
-        }
-    }
 }
