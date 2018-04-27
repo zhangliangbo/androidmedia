@@ -6,4 +6,5 @@
     <color name="video_edge_color">#80c0c0c0</color>
     <color name="audio_edge_color">#80c0c0c0</color>
     <color name="audio_color">#c0c0c0</color>
+    <color name="control_background">#cc4285f4</color>
 </resources>

@@ -38,6 +38,10 @@
         <activity android:name="com.mcivicm.media.camera2.googlevideo.CameraActivity">
 
         </activity>
+
+        <activity android:name="com.mcivicm.media.camera2.googlebasic.CameraActivity">
+
+        </activity>
         <activity android:name="com.mcivicm.media.MatrixActivity">
 
         </activity>

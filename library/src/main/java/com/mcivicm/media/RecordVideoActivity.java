@@ -1,6 +1,7 @@
 package com.mcivicm.media;
 
 import android.app.Service;
+import android.graphics.Camera;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -71,6 +72,7 @@ import io.reactivex.subjects.PublishSubject;
 public class RecordVideoActivity extends AppCompatActivity {
 
     private TextureView textureView;//preview
+    private Surface previewSurface;//for previewing
     private ImageReader imageReader;//preview
     private MediaRecorder mediaRecorder;//record;
 
@@ -91,6 +93,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     private int cameraFacing = CameraCharacteristics.LENS_FACING_BACK;
     private CameraDevice cameraDevice;
     private CameraCaptureSession cameraCaptureSession;
+    private int lastTemplate = CameraDevice.TEMPLATE_PREVIEW;
 
     private Disposable recordDisposable;
 
@@ -111,13 +114,16 @@ public class RecordVideoActivity extends AppCompatActivity {
         textureView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startPreview();//开始预览
+                if (lastTemplate == CameraDevice.TEMPLATE_RECORD) {
+                    newPreview();
+                } else {
+                    preview();
+                }
             }
         });
         textureView.setSurfaceTextureListener(new SurfaceTextureListener());
         volumeView = findViewById(R.id.record_button_layout);
         recordVideo = findViewById(R.id.record_button);
-
         recordVideo.setOnTouchListener(new TouchListener());
     }
 
@@ -125,7 +131,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         if (textureView.isAvailable()) {
-            startPreview();
+            newPreview();
         } else {
             textureView.setSurfaceTextureListener(new SurfaceTextureListener());
         }
@@ -134,6 +140,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        releaseSession();
         releaseCamera();
         releaseHandler();
         releaseSubject();
@@ -207,6 +214,13 @@ public class RecordVideoActivity extends AppCompatActivity {
                 });
     }
 
+    private void releaseSession() {
+        if (cameraCaptureSession != null) {
+            cameraCaptureSession.close();
+        }
+    }
+
+    //释放摄像头
     private void releaseCamera() {
         if (cameraDevice != null) {
             cameraDevice.close();
@@ -285,6 +299,16 @@ public class RecordVideoActivity extends AppCompatActivity {
         }
     }
 
+    private void stopRepeating() {
+        if (cameraCaptureSession != null) {
+            try {
+                cameraCaptureSession.stopRepeating();
+            } catch (CameraAccessException e) {
+                //ignore.
+            }
+        }
+    }
+
     private void releaseSubject() {
         mainSubject.onComplete();
         ioSubject.onComplete();
@@ -299,54 +323,30 @@ public class RecordVideoActivity extends AppCompatActivity {
                         return new SessionCaptureObservable(
                                 cameraCaptureSession,
                                 captureTemplate,
-                                new SessionCaptureObservable.RequestBuilderInitializer() {
-                                    @Override
-                                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                                        if (surfaceList != null) {
-                                            for (Surface surface : surfaceList) {
-                                                builder.addTarget(surface);
-                                            }
-                                        }
-                                        //传进来的initializer就不用添加Surface，因为上面已经添加了，只要传其他参数就行。
-                                        if (initializer != null) {
-                                            initializer.onCreateRequestBuilder(builder);
-                                        }
-                                    }
-                                },
+                                initializer,
                                 nonMainHandler);
                     }
                 })
-                .subscribe(new Observer<Pair<Integer, ? extends CameraMetadata>>() {
+                .subscribe(new CaptureResultObserver(captureTemplate));
+    }
+
+    //使用现有会话捕捉图像
+    private void capture(final int captureTemplate, final SessionCaptureObservable.RequestBuilderInitializer initializer) {
+        if (cameraCaptureSession == null) {
+            return;
+        }
+        Observable.just(cameraCaptureSession)
+                .flatMap(new Function<CameraCaptureSession, ObservableSource<Pair<Integer, ? extends CameraMetadata>>>() {
                     @Override
-                    public void onSubscribe(Disposable d) {
-
+                    public ObservableSource<Pair<Integer, ? extends CameraMetadata>> apply(CameraCaptureSession cameraCaptureSession) throws Exception {
+                        return new SessionCaptureObservable(
+                                cameraCaptureSession,
+                                captureTemplate,
+                                initializer,
+                                nonMainHandler);
                     }
-
-                    @Override
-                    public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
-                        switch (captureTemplate) {
-                            case CameraDevice.TEMPLATE_PREVIEW:
-                                Log.d("zhang", "previewing.");
-                                break;
-                            case CameraDevice.TEMPLATE_RECORD:
-                                Log.d("zhang", "recording.");
-                                break;
-                            case CameraDevice.TEMPLATE_STILL_CAPTURE:
-                                Log.d("zhang", "still capture");
-                                break;
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
+                })
+                .subscribe(new CaptureResultObserver(captureTemplate));
     }
 
     //请求权限
@@ -380,31 +380,52 @@ public class RecordVideoActivity extends AppCompatActivity {
         return new Surface(surfaceTexture);
     }
 
-    private void startPreview() {
+    private void newPreview() {
         //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
-        Surface previewSurface = newTextureSurface();
-        if (previewSurface == null)
+        previewSurface = newTextureSurface();
+        if (previewSurface == null || bufferSize == null)
             return;
-        newCapture(CameraDevice.TEMPLATE_PREVIEW, list(previewSurface), null);
+        //释放已有资源
+        if (imageReader != null) {
+            imageReader.close();
+        }
+        imageReader = ImageReader.newInstance(bufferSize.getWidth(), bufferSize.getHeight(), ImageFormat.JPEG, 1);
+        imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
+        newCapture(
+                CameraDevice.TEMPLATE_PREVIEW,
+                list(previewSurface, imageReader.getSurface()),//注册两个Surface.
+                new SessionCaptureObservable.RequestBuilderInitializer() {
+                    @Override
+                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                        builder.addTarget(previewSurface);//预览的时候只用一个Surface.
+                    }
+                });
     }
 
-    private void startStillCapture() {
-        Surface stillSurface = newTextureSurface();
-        if (stillSurface == null || bufferSize == null) return;
-        ImageReader imageReader = ImageReader.newInstance(bufferSize.getWidth(), bufferSize.getHeight(), ImageFormat.JPEG, 1);
-        imageReader.setOnImageAvailableListener(new ImageAvailable(), nonMainHandler);
-        newCapture(CameraDevice.TEMPLATE_STILL_CAPTURE, list(stillSurface, imageReader.getSurface()), new SessionCaptureObservable.RequestBuilderInitializer() {
+    private void preview() {
+        //使用现有Session预览
+        capture(CameraDevice.TEMPLATE_PREVIEW, new SessionCaptureObservable.RequestBuilderInitializer() {
             @Override
             public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
-                //设置图片旋转角
+                builder.addTarget(previewSurface);//使用现有Surface预览（没有主动关闭或者新建Session，Surface一般是存在的）
+            }
+        });
+    }
+
+    private void stillCapture() {
+        //使用现有的Session捕获图片
+        capture(CameraDevice.TEMPLATE_STILL_CAPTURE, new SessionCaptureObservable.RequestBuilderInitializer() {
+            @Override
+            public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                builder.addTarget(imageReader.getSurface());
                 builder.set(CaptureRequest.JPEG_ORIENTATION, CameraTwoHelper.getOrientationHint(sensorOrientation, getWindowManager().getDefaultDisplay().getRotation()));
             }
         });
     }
 
-    private void startRecord() {
+    private void newRecord() {
         //每次都需要新的Surface，因为开启新的会话会关闭原有会话，关闭原有会话会销毁Surface，所以Surface没有办法复用。
-        Surface recordSurface = newTextureSurface();
+        final Surface recordSurface = newTextureSurface();
         if (recordSurface == null)
             return;
         mediaRecorder = new MediaRecorder();
@@ -422,7 +443,16 @@ public class RecordVideoActivity extends AppCompatActivity {
             return;
         }
         //a new capture
-        newCapture(CameraDevice.TEMPLATE_RECORD, list(recordSurface, mediaRecorder.getSurface()), null);//must after calling prepare().
+        newCapture(
+                CameraDevice.TEMPLATE_RECORD,
+                list(recordSurface, mediaRecorder.getSurface()),
+                new SessionCaptureObservable.RequestBuilderInitializer() {
+                    @Override
+                    public void onCreateRequestBuilder(CaptureRequest.Builder builder) {
+                        builder.addTarget(recordSurface);
+                        builder.addTarget(mediaRecorder.getSurface());
+                    }
+                });//must after calling prepare().
         //start recording
         mediaRecorder.start();
     }
@@ -452,7 +482,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                         recordVideo.setText("");
                         //下面两个方法不能互换，因为MediaPlayer的release方法会释放注册到会话的Surface，这会影响摄像头的正常捕获，导致后续会话无法正常关闭。
                         //所以正确的方法应该先关闭会话，再关闭释放MediaPlayer的资源。
-                        startPreview();
+                        newPreview();
                         stopRecord();
                     }
                 })
@@ -467,7 +497,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                         recordVideo.setText("");
 
                         //开始录制视频
-                        startRecord();
+                        newRecord();
                     }
 
                     @Override
@@ -482,7 +512,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         recordVideo.setText("");
-                        startPreview();
+                        newPreview();
                         stopRecord();
                     }
 
@@ -492,7 +522,7 @@ public class RecordVideoActivity extends AppCompatActivity {
                         volumeView.hideEdge();
                         volumeView.setOrientation(0);
                         recordVideo.setText("");
-                        startPreview();
+                        newPreview();
                         stopRecord();
                     }
                 });
@@ -525,7 +555,7 @@ public class RecordVideoActivity extends AppCompatActivity {
 
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
-            startPreview();
+            newPreview();
         }
 
         @Override
@@ -549,9 +579,8 @@ public class RecordVideoActivity extends AppCompatActivity {
         @Override
         public void onImageAvailable(ImageReader reader) {
             log("available");
-            startPreview();
-            Image image = reader.acquireNextImage();
-            image.close();
+            stopRepeating();
+            ioSubject.onNext(reader);
         }
     }
 
@@ -589,10 +618,48 @@ public class RecordVideoActivity extends AppCompatActivity {
         public void onNext(ImageReader imageReader) {
             log("new image");
             Image image = imageReader.acquireNextImage();
-            saveImage(image);
+//            saveImage(image);
             image.close();
-            imageReader.close();
-            startPreview();
+        }
+
+        @Override
+        public void onError(Throwable e) {
+
+        }
+
+        @Override
+        public void onComplete() {
+
+        }
+    }
+
+    private class CaptureResultObserver implements Observer<Pair<Integer, ? extends CameraMetadata>> {
+
+        private int template = 0;
+
+        CaptureResultObserver(int template) {
+            this.template = template;
+        }
+
+        @Override
+        public void onSubscribe(Disposable d) {
+
+        }
+
+        @Override
+        public void onNext(Pair<Integer, ? extends CameraMetadata> integerPair) {
+            lastTemplate = template;
+            switch (template) {
+                case CameraDevice.TEMPLATE_PREVIEW:
+                    Log.d("zhang", "previewing.");
+                    break;
+                case CameraDevice.TEMPLATE_RECORD:
+                    Log.d("zhang", "recording.");
+                    break;
+                case CameraDevice.TEMPLATE_STILL_CAPTURE:
+                    Log.d("zhang", "still capture");
+                    break;
+            }
         }
 
         @Override
@@ -645,7 +712,7 @@ public class RecordVideoActivity extends AppCompatActivity {
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onSingleTapUp(MotionEvent e) {
-            startStillCapture();//点击拍照
+            stillCapture();//点击拍照
             return true;
         }
 
