@@ -5,6 +5,7 @@ import android.graphics.Matrix;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.media.MediaRecorder;
 import android.os.Bundle;
@@ -26,6 +27,7 @@ import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.view.VolumeView;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -459,27 +461,25 @@ public class CameraOneActivity extends AppCompatActivity {
         public void onNext(Object o) {
             if (o instanceof PreviewData) {
                 PreviewData previewData = (PreviewData) o;
-                if (previewData.data == null || previewData.data.length == 0) return;
-//                FileOutputStream fos = null;
-//                try {
-//                    fos = new FileOutputStream(new File(Environment.getExternalStorageDirectory(), System.currentTimeMillis() + ".jpeg"));
-//                    byte[] rotate = CameraOneHelper.rotateYUV420Degree90(previewData.data, previewData.width, previewData.height);
-//                    YuvImage yuvImage = new YuvImage(rotate, previewData.format, previewData.width, previewData.height, null);
-//                    rect.set(0, 0, previewData.width, previewData.height);
-//                    if (yuvImage.compressToJpeg(rect, 100, fos)) {
-//                        Log.d("preview", "write success");
-//                    }
-//                } catch (Exception e) {
-//                    //ignore
-//                } finally {
-//                    if (fos != null) {
-//                        try {
-//                            fos.close();
-//                        } catch (IOException e1) {
-//                            e1.printStackTrace();
-//                        }
-//                    }
-//                }
+                if (previewData.data == null || previewData.data.length == 0 || parameters == null)
+                    return;
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                try {
+                    YuvImage yuvImage = new YuvImage(previewData.data, parameters.getPreviewFormat(), parameters.getPreviewSize().width, parameters.getPreviewSize().height, null);
+                    rect.set(0, 0, parameters.getPreviewSize().width, parameters.getPreviewSize().height);
+                    if (yuvImage.compressToJpeg(rect, 100, baos)) {
+                        //deal with the preview of jpeg format.
+                    }
+                } catch (Exception e) {
+                    //ignore
+                } finally {
+                    baos.reset();
+                    try {
+                        baos.close();
+                    } catch (IOException e) {
+                        //ignore
+                    }
+                }
             } else if (o instanceof PictureData) {
                 PictureData pd = (PictureData) o;
                 try {
