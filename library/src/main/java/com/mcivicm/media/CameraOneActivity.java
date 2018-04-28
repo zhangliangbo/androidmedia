@@ -1,9 +1,7 @@
 package com.mcivicm.media;
 
 import android.graphics.ImageFormat;
-import android.graphics.Matrix;
 import android.graphics.Rect;
-import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
 import android.graphics.YuvImage;
 import android.hardware.Camera;
@@ -17,7 +15,6 @@ import android.support.v7.widget.AppCompatTextView;
 import android.util.Log;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
-import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 
