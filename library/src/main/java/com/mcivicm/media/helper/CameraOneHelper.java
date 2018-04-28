@@ -2,22 +2,17 @@ package com.mcivicm.media.helper;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.Context;
-import android.content.res.Configuration;
 import android.graphics.Bitmap;
-import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.hardware.Camera;
-import android.util.Log;
 import android.view.Surface;
 
-import com.mcivicm.media.CameraOneActivity;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.security.Policy;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -198,14 +193,15 @@ public class CameraOneHelper {
      * 适配屏幕和相机
      *
      * @param camera
-     * @param width
-     * @param height
+     * @param width  大者
+     * @param height 小者
      */
-    public static void bestResolution(Camera camera, int width, int height) {
+    public static void setPreviewAndPictureResolution(Camera camera, int width, int height) {
         if (width == 0 || height == 0) {//提出杂质
             return;
         }
         Camera.Parameters rawParameters = camera.getParameters();
+
         //查找【最大预览分辨率】并设置
         Camera.Size bestPreviewSize = findMaxSize(
                 rawParameters.getSupportedPreviewSizes()
@@ -214,7 +210,7 @@ public class CameraOneHelper {
             rawParameters.setPreviewSize(bestPreviewSize.width, bestPreviewSize.height);
         }
         //查找【最佳图片分辨率】并设置，不用最大分辨率是为了节省空间
-        Camera.Size bestPictureSize = findBestSize(
+        Camera.Size bestPictureSize = findEnoughSize(
                 rawParameters.getSupportedPictureSizes(),
                 width,
                 height
@@ -333,49 +329,50 @@ public class CameraOneHelper {
         }
     }
 
-    private static Camera.Size findMaxSize(List<Camera.Size> list) {
+    /**
+     * 分辨率最高
+     *
+     * @param list
+     * @return
+     */
+    public static Camera.Size findMaxSize(List<Camera.Size> list) {
         if (list != null && list.size() > 0) {
-            Collections.sort(list, new Comparator<Camera.Size>() {
-                @Override
-                public int compare(Camera.Size o1, Camera.Size o2) {
-                    return o2.width * o2.height - o1.width * o1.height;
-                }
-            });
-            return list.get(0);
+            return Collections.max(list, new AreaComparator());
         }
         return null;
     }
 
-    //找寻最合适的分辨率
-    private static Camera.Size findBestSize(List<Camera.Size> list, int width, int height) {
+    /**
+     * 分辨率比视图大即可
+     *
+     * @param list
+     * @param width  大者
+     * @param height 小者
+     * @return
+     */
+    public static Camera.Size findEnoughSize(List<Camera.Size> list, int width, int height) {
         if (list != null && list.size() > 0) {
-            Collections.sort(list, new Comparator<Camera.Size>() {
-                @Override
-                public int compare(Camera.Size o1, Camera.Size o2) {
-                    return o2.height * o2.width - o1.height * o1.width;
-                }
-            });
-            //先找找有没有高和宽完全相同的分辨率
+            List<Camera.Size> bigEnough = new ArrayList<>();
             for (Camera.Size size : list) {
-                if (size.height == width) {
-                    return size;
+                if (size.width >= width && size.height >= height) {
+                    bigEnough.add(size);
                 }
             }
-            //如果，没有根据给定的比例来找
-            float ratio = (float) width / (float) height;
-            //最佳大小
-            Camera.Size minDiffSize = list.get(0);
-            float minDiff = Math.abs((float) minDiffSize.width / (float) minDiffSize.height - ratio);
-            for (int i = 1; i < list.size(); i++) {
-                float tempDiff = Math.abs((float) list.get(i).width / (float) list.get(i).height - ratio);
-                if (tempDiff < minDiff) {
-                    minDiff = tempDiff;
-                    minDiffSize = list.get(i);
-                }
+            if (bigEnough.size() == 0) {
+                return Collections.max(list, new AreaComparator());
+            } else {
+                return Collections.min(bigEnough, new AreaComparator());
             }
-            return minDiffSize;
         }
         return null;
+    }
+
+    private static class AreaComparator implements Comparator<Camera.Size> {
+
+        @Override
+        public int compare(Camera.Size o1, Camera.Size o2) {
+            return o1.width * o1.height - o2.width * o2.height;
+        }
     }
 
     public static byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight) {

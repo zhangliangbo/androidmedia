@@ -52,7 +52,6 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 
 import io.reactivex.Observable;
@@ -76,7 +75,7 @@ public class CameraTwoActivity extends AppCompatActivity {
 
     private TextureView textureView;//preview
     private Surface previewSurface;//for previewing
-    private ImageReader imageReader;//preview
+    private ImageReader imageReader;//still capture
     private MediaRecorder mediaRecorder;//record;
 
     private PublishSubject<Object> mainSubject = PublishSubject.create();//main thread.
@@ -192,24 +191,28 @@ public class CameraTwoActivity extends AppCompatActivity {
 
     //是否有两面
     private Observable<Boolean> haveTwoFacing() {
-        return Observable.fromCallable(new Callable<Boolean>() {
+        return permission().flatMap(new Function<Boolean, ObservableSource<Boolean>>() {
             @Override
-            public Boolean call() throws Exception {
-                String[] cameraIdList = manager().getCameraIdList();
-                boolean front = false;
-                boolean back = false;
-                for (String id : cameraIdList) {
-                    CameraCharacteristics cc = manager().getCameraCharacteristics(id);
-                    Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
-                    if (facing != null) {
-                        if (facing == CameraMetadata.LENS_FACING_BACK) {
-                            back = true;
-                        } else {
-                            front = true;
+            public ObservableSource<Boolean> apply(Boolean aBoolean) throws Exception {
+                if (aBoolean) {
+                    String[] cameraIdList = manager().getCameraIdList();
+                    boolean front = false;
+                    boolean back = false;
+                    for (String id : cameraIdList) {
+                        CameraCharacteristics cc = manager().getCameraCharacteristics(id);
+                        Integer facing = cc.get(CameraCharacteristics.LENS_FACING);
+                        if (facing != null) {
+                            if (facing == CameraMetadata.LENS_FACING_BACK) {
+                                back = true;
+                            } else {
+                                front = true;
+                            }
                         }
                     }
+                    return Observable.just(front && back);
+                } else {
+                    return Observable.empty();
                 }
-                return front && back;
             }
         });
     }

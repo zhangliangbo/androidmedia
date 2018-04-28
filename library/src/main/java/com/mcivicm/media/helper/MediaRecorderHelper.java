@@ -16,7 +16,7 @@ public class MediaRecorderHelper {
 
     private static MediaRecorder mediaRecorder = null;
     private static File tempAudioFile = new File(Environment.getExternalStorageDirectory() + File.separator + "temp_audio.aac");//why .m4a? M4A是MPEG-4 音频标准的文件的扩展名。;
-    private static File tempVideoFile = new File(Environment.getExternalStorageDirectory() + File.separator + "temp_video.mp4");
+    private static File tempVideoFile = new File(Environment.getExternalStorageDirectory() + File.separator + "camera1_temp_video.mp4");
     private static boolean isRelease = false;
 
     private static MediaRecorder getInstance() throws IOException {
