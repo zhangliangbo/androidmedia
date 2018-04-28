@@ -13,7 +13,6 @@ import android.view.View;
 
 import com.mcivicm.media.helper.AudioRecordHelper;
 import com.mcivicm.media.helper.AudioTrackHelper;
-import com.mcivicm.media.helper.MediaPlayerHelper;
 import com.mcivicm.media.helper.MediaRecorderHelper;
 import com.mcivicm.media.helper.ToastHelper;
 import com.mcivicm.media.helper.WebSocketHelper;
@@ -57,8 +56,6 @@ public class AudioActivity extends AppCompatActivity {
     private PublishSubject<Object> publishSubject = PublishSubject.create();
 
     private RequestType requestType = RequestType.None;//请求类型
-
-    private Recorder omRecorder;
 
     private VolumeView volumeView;
 
@@ -145,95 +142,6 @@ public class AudioActivity extends AppCompatActivity {
 
                     }
                 });
-    }
-
-    //开始录制语音文件
-    private void startRecordAudioFile() {
-        new RxPermissions(this)
-                .request(Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                .subscribe(new Observer<Boolean>() {
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Boolean aBoolean) {
-                        if (aBoolean) {
-                            if (MediaRecorderHelper.prepare()) {
-                                MediaRecorderHelper.start();
-                            } else {
-                                ToastHelper.toast(AudioActivity.this, "录音初始化失败");
-                            }
-                        } else {
-                            ToastHelper.toast(AudioActivity.this, "未授权，无法录音");
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-                        ToastHelper.toast(AudioActivity.this, e.getMessage());
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
-    }
-
-    //停止录制语音文件
-    private void stopRecordAudioFile() {
-        MediaRecorderHelper.stop();
-        MediaRecorderHelper.reset();
-        MediaRecorderHelper.release();
-    }
-
-    //播放录制的语音
-    private void playAudioFile(File file) throws IOException {
-        MediaPlayerHelper.play(
-                file.getAbsolutePath(),
-                new MediaPlayer.OnCompletionListener() {
-                    @Override
-                    public void onCompletion(MediaPlayer mp) {
-
-                    }
-                },
-                new MediaPlayer.OnErrorListener() {
-                    @Override
-                    public boolean onError(MediaPlayer mp, int what, int extra) {
-                        return false;
-                    }
-                });
-    }
-
-    //上传语音文件
-    private boolean uploadAudioFile(File file) {
-        if (file.exists()) {
-            try {
-                FileInputStream fis = new FileInputStream(file);
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                byte[] buffer = new byte[512];
-                while (true) {
-                    int len = fis.read(buffer);
-                    if (len == -1) {
-                        break;
-                    } else {
-                        baos.write(buffer, 0, len);
-                    }
-                }
-                byte[] audioData = baos.toByteArray();
-                baos.close();
-                fis.close();
-                sendBytes(audioData);
-                return true;
-            } catch (FileNotFoundException e) {
-                return false;
-            } catch (IOException e) {
-                return false;
-            }
-        }
-        return false;
     }
 
     private class WSListener extends WebSocketListener {
@@ -351,63 +259,6 @@ public class AudioActivity extends AppCompatActivity {
         audioTrack.pause();
     }
 
-    /*
-    使用am库录音
-     */
-    private void startRecordAudioAm() {
-        new RxPermissions(AudioActivity.this)
-                .request(Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                .subscribe(new Observer<Boolean>() {
-                    @Override
-                    public void onSubscribe(Disposable d) {
-
-                    }
-
-                    @Override
-                    public void onNext(Boolean aBoolean) {
-                        if (aBoolean) {
-                            File file = new File(Environment.getExternalStorageDirectory(), "om_file.wav");
-                            omRecorder = OmRecorder.wav(
-                                    new PullTransport.Default(
-                                            new PullableSource.Default(
-                                                    new AudioRecordConfig.Default(
-                                                            MediaRecorder.AudioSource.DEFAULT,
-                                                            AudioFormat.ENCODING_PCM_16BIT,
-                                                            AudioFormat.CHANNEL_IN_STEREO,
-                                                            44100
-                                                    )
-                                            )
-                                    ),
-                                    file
-                            );
-                            omRecorder.startRecording();
-                        } else {
-                            ToastHelper.toast(AudioActivity.this, "未授权，无法录音");
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-
-                    }
-
-                    @Override
-                    public void onComplete() {
-
-                    }
-                });
-    }
-
-    private void stopRecordAudioAm() {
-        if (omRecorder != null) {
-            try {
-                omRecorder.stopRecording();
-            } catch (IOException e) {
-                //ignore
-            }
-        }
-    }
-
     private void startRecordAudioStream() {
         new RxPermissions(AudioActivity.this)
                 .request(Manifest.permission.RECORD_AUDIO)
@@ -477,28 +328,6 @@ public class AudioActivity extends AppCompatActivity {
             WebSocketHelper.newInstance(new WSListener(data));
         } else {
             ws.send(ByteString.of(data, 0, data.length));
-        }
-    }
-
-    private void writePcm(byte[] raw) {
-        File file = new File(Environment.getExternalStorageDirectory() + File.separator + "raw16.pcm");
-        if (!file.exists()) {
-            try {
-                if (!file.createNewFile()) {
-                    return;
-                }
-            } catch (IOException e) {
-                return;
-            }
-        }
-        try {
-            FileOutputStream fos = new FileOutputStream(file, true);
-            fos.write(raw);
-            fos.close();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 

@@ -167,28 +167,6 @@ public class CameraOneHelper {
         camera.setParameters(parameters);
     }
 
-
-    /**
-     * 最大分辨率
-     *
-     * @param camera
-     */
-    public static void maxResolution(Camera camera) {
-        Camera.Parameters rawParameters = camera.getParameters();
-        //查找最大预览分辨率并设置
-        Camera.Size maxPreview = findMaxSize(rawParameters.getSupportedPreviewSizes());
-        if (maxPreview != null) {
-            rawParameters.setPreviewSize(maxPreview.width, maxPreview.height);
-        }
-        //查找最大图片分辨率并设置
-        Camera.Size maxPicture = findMaxSize(rawParameters.getSupportedPictureSizes());
-        if (maxPicture != null) {
-            rawParameters.setPictureSize(maxPicture.width, maxPicture.height);
-        }
-        //最后一定记得重新作用到照相机
-        camera.setParameters(rawParameters);
-    }
-
     /**
      * 适配屏幕和相机
      *
