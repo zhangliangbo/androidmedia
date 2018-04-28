@@ -31,6 +31,8 @@
             android:background="@drawable/video_record"
             android:gravity="center"
             android:text=""
+            android:textColor="@android:color/white"
+            android:textSize="24sp"
             tools:ignore="HardcodedText" />
 
     </com.mcivicm.media.view.VolumeView>

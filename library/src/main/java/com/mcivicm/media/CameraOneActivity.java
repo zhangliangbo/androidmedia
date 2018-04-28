@@ -360,6 +360,7 @@ public class CameraOneActivity extends AppCompatActivity {
                     public void onNext(Long aLong) {
                         //"录制中"
                         recordButtonLayout.setOrientation((int) (360 * aLong.floatValue() / 10000));
+                        recordButton.setText(String.valueOf(aLong.intValue()));
                     }
 
                     @Override
